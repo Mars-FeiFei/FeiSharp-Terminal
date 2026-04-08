@@ -12,6 +12,7 @@ namespace FeiSharpStudio
         Identifier,
         Number,
         String,
+        Character,
         Punctuation,
         Operator,
         EndOfFile,

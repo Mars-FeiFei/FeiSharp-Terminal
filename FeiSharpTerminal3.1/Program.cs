@@ -1,518 +1,1150 @@
-﻿using System.Diagnostics;
-using System.Net.NetworkInformation;
-using System.Runtime.InteropServices;
-using FeiSharpStudio;
-namespace FeiSharp8._5RuntimeSdk;
-
+﻿using FeiSharpStudio;
 using FeiSharpTerminal3._1;
-using FeiSharpTerminal3._1.ThinkGeo;
+using FeiSharpTerminal3._1.Tests;
 using Spectre.Console;
-
-internal class Program
+using System.Diagnostics;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+namespace FeiSharp8._5RuntimeSdk;
+public class Program
 {
-    private readonly static global::System.UInt16 UINT16_WINDOWS_X64_COLOR_ID_GREY = global::System.UInt16.Parse(FeiSharpTerminal3._1.Properties.Resources.ConsoleGrayNumber);
-    static void Main(string[] args)
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint mode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetConsoleMode(IntPtr handle, out uint mode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern IntPtr GetStdHandle(int handle);
+
+    public static string? MapPath(string vpath, string _applicationPath)
+    {
+        string path = "";
+        if (vpath.StartsWith("~/"))
+        {
+            path = Path.Combine(Path.GetDirectoryName(_applicationPath), vpath[2..]);
+        }
+        else if (vpath.StartsWith("$"))
+        {
+            path = Path.Combine(AppContext.BaseDirectory, "Imports/" + vpath[1..]);
+        }
+        path = path.Replace("/", "\\");
+        return File.Exists(path) ? path : null;
+    }
+
+    static void EnableVirtualTerminalProcessing()
+    {
+        var handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        GetConsoleMode(handle, out uint mode);
+        SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    }
+
+    const int STD_OUTPUT_HANDLE = -11;
+    const uint ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
+
+    static string CreateWavyUnderline(int length)
+    {
+        const char waveChar1 = '~';
+        char[] wavyLine = new char[length];
+        for (int i = 0; i < length; i++)
+        {
+            wavyLine[i] = waveChar1;
+        }
+        return new string(wavyLine);
+    }
+
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    static extern IntPtr GetConsoleWindow();
+
+    [DllImport("user32.dll")]
+    static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    const int SW_MAXIMIZE = 3;
+
+    static string GetUserCode()
+    {
+        global::System.String code = "";
+        global::System.String scode = "";
+
+        AnsiConsole.MarkupLine("[grey]Enter your code (type 'exit' to finish, Ctrl+C to cancel execution)[/]");
+
+        while (true)
+        {
+            // 检查是否有中断请求
+            if (ExecutionCancellation.IsCancellationRequested)
+            {
+                AnsiConsole.MarkupLine("[yellow]Code input cancelled[/]");
+                return "";
+            }
+
+            Console.Write("... ");
+            code = Console.ReadLine();
+
+            if (code == "exit")
+            {
+                AnsiConsole.MarkupLine($"[grey]>>>[/] [yellow]Exiting code input mode at[/] [cyan]{DateTime.Now}[/]");
+                break;
+            }
+
+            scode += code + "\n";
+        }
+
+        return scode;
+    }
+
+
+    public static string _applicationPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+    private static Parser _parser;
+    static string dynamicTitle = "FeiSharp - Inputing Command";
+    const string IN_CMD = "Inputing Command";
+    const string EDT_CDE = "Editing Code";
+    const string EXEC = "Executing";
+    static void ChangeDynamicTitle(string change)
+    {
+        dynamicTitle = "FeiSharp - " + change;
+        Console.Title = dynamicTitle;
+    }
+
+    static void TryConfigureConsole(Action configureAction)
+    {
+        try
+        {
+            configureAction();
+        }
+        catch (IOException)
+        {
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+        }
+        catch (PlatformNotSupportedException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    static string? ResolveFeiSharpSourcePath(string inputPath)
+    {
+        if (string.IsNullOrWhiteSpace(inputPath))
+        {
+            return null;
+        }
+
+        string fullInputPath = Path.GetFullPath(inputPath.Trim().Trim('"'));
+        if (!File.Exists(fullInputPath))
+        {
+            return null;
+        }
+
+        if (!string.Equals(Path.GetExtension(fullInputPath), ".feiproj", StringComparison.OrdinalIgnoreCase))
+        {
+            return fullInputPath;
+        }
+
+        var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(File.ReadAllText(fullInputPath));
+        if (dict == null || !dict.TryGetValue("project_main_file", out object? mainFileValue))
+        {
+            return null;
+        }
+
+        string? mainFile = mainFileValue?.ToString();
+        if (string.IsNullOrWhiteSpace(mainFile))
+        {
+            return null;
+        }
+
+        string projectDirectory = Path.GetDirectoryName(fullInputPath) ?? Directory.GetCurrentDirectory();
+        string resolvedMainFile = Path.GetFullPath(Path.Combine(projectDirectory, mainFile));
+        return File.Exists(resolvedMainFile) ? resolvedMainFile : null;
+    }
+
+    static string GetBuildBaseDirectory(string inputPath, string sourcePath)
+    {
+        if (!string.IsNullOrWhiteSpace(inputPath))
+        {
+            string fullInputPath = Path.GetFullPath(inputPath.Trim().Trim('"'));
+            if (File.Exists(fullInputPath) && string.Equals(Path.GetExtension(fullInputPath), ".feiproj", StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.GetDirectoryName(fullInputPath) ?? Directory.GetCurrentDirectory();
+            }
+        }
+
+        return Path.GetDirectoryName(sourcePath) ?? Directory.GetCurrentDirectory();
+    }
+
+    static string GetBuildOutputName(string inputPath, string sourcePath)
+    {
+        if (!string.IsNullOrWhiteSpace(inputPath))
+        {
+            string fullInputPath = Path.GetFullPath(inputPath.Trim().Trim('"'));
+            if (File.Exists(fullInputPath) && string.Equals(Path.GetExtension(fullInputPath), ".feiproj", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(File.ReadAllText(fullInputPath));
+                    if (dict != null && dict.TryGetValue("project_name", out object? projectNameValue))
+                    {
+                        string? projectName = projectNameValue?.ToString();
+                        if (!string.IsNullOrWhiteSpace(projectName))
+                        {
+                            return string.Concat(projectName.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)).Trim();
+                        }
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        return Path.GetFileNameWithoutExtension(sourcePath);
+    }
+
+    static string ResolveBuildOutputPath(string sourcePath, string? requestedOutputPath)
+    {
+        if (string.IsNullOrWhiteSpace(requestedOutputPath))
+        {
+            return Path.Combine(
+                Path.GetDirectoryName(sourcePath) ?? Directory.GetCurrentDirectory(),
+                Path.GetFileNameWithoutExtension(sourcePath) + ".exe");
+        }
+
+        string trimmedPath = requestedOutputPath.Trim().Trim('"');
+        if (trimmedPath.EndsWith("\\") || trimmedPath.EndsWith("/"))
+        {
+            return Path.Combine(
+                Path.GetFullPath(trimmedPath),
+                Path.GetFileNameWithoutExtension(sourcePath) + ".exe");
+        }
+
+        string fullPath = Path.GetFullPath(trimmedPath);
+        if (Directory.Exists(fullPath))
+        {
+            return Path.Combine(fullPath, Path.GetFileNameWithoutExtension(sourcePath) + ".exe");
+        }
+
+        return string.Equals(Path.GetExtension(fullPath), ".exe", StringComparison.OrdinalIgnoreCase)
+            ? fullPath
+            : fullPath + ".exe";
+    }
+
+    static string ResolveBuildOutputPath(string inputPath, string sourcePath, string? requestedOutputPath)
+    {
+        if (string.IsNullOrWhiteSpace(requestedOutputPath))
+        {
+            string buildBaseDirectory = GetBuildBaseDirectory(inputPath, sourcePath);
+            string outputName = GetBuildOutputName(inputPath, sourcePath);
+            return Path.Combine(buildBaseDirectory, "bin", "obj", "feisharp.sdk 9.0", outputName + ".exe");
+        }
+
+        return ResolveBuildOutputPath(sourcePath, requestedOutputPath);
+    }
+
+    static string GetRuntimeAssemblyPath()
+    {
+        string assemblyPath = typeof(Program).Assembly.Location;
+        if (string.Equals(Path.GetExtension(assemblyPath), ".dll", StringComparison.OrdinalIgnoreCase) && File.Exists(assemblyPath))
+        {
+            return assemblyPath;
+        }
+
+        string dllPath = Path.ChangeExtension(assemblyPath, ".dll");
+        if (File.Exists(dllPath))
+        {
+            return dllPath;
+        }
+
+        throw new FileNotFoundException("Unable to locate the FeiSharp runtime assembly.", assemblyPath);
+    }
+
+    static string GetWindowsRuntimeIdentifier()
+    {
+        return RuntimeInformation.OSArchitecture switch
+        {
+            Architecture.Arm64 => "win-arm64",
+            Architecture.X86 => "win-x86",
+            _ => "win-x64"
+        };
+    }
+
+    static bool TryBuildExecutable(string inputPath, string? requestedOutputPath, out string outputExePath, out string errorMessage)
+    {
+        outputExePath = string.Empty;
+        errorMessage = string.Empty;
+
+        string? sourcePath = ResolveFeiSharpSourcePath(inputPath);
+        if (sourcePath == null)
+        {
+            errorMessage = "The source file or project file could not be found.";
+            return false;
+        }
+
+        string runtimeAssemblyPath;
+        try
+        {
+            runtimeAssemblyPath = GetRuntimeAssemblyPath();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            return false;
+        }
+
+        outputExePath = ResolveBuildOutputPath(inputPath, sourcePath, requestedOutputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(outputExePath) ?? Directory.GetCurrentDirectory());
+
+        string previousApplicationPath = _applicationPath;
+        string tempRoot = Path.Combine(Path.GetTempPath(), "FeiSharpBuild", Guid.NewGuid().ToString("N"));
+        string tempProjectPath = Path.Combine(tempRoot, "GeneratedLauncher.csproj");
+        string tempProgramPath = Path.Combine(tempRoot, "Program.cs");
+        string tempBuildDirectory = Path.Combine(tempRoot, "build");
+        string tempPublishDirectory = Path.Combine(tempRoot, "publish");
+        string assemblyName = Path.GetFileNameWithoutExtension(outputExePath);
+        string base64Source;
+
+        try
+        {
+            _applicationPath = sourcePath;
+            string sourceCode = File.ReadAllText(sourcePath);
+            string processedSource = ProProcesser(sourceCode);
+            base64Source = Convert.ToBase64String(Encoding.UTF8.GetBytes(processedSource));
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to read or preprocess source: {ex.Message}";
+            return false;
+        }
+        finally
+        {
+            _applicationPath = previousApplicationPath;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(tempRoot);
+
+            string escapedAssemblyName = System.Security.SecurityElement.Escape(assemblyName) ?? assemblyName;
+            string escapedRuntimeAssemblyPath = System.Security.SecurityElement.Escape(runtimeAssemblyPath) ?? runtimeAssemblyPath;
+            string runtimeIdentifier = GetWindowsRuntimeIdentifier();
+
+            File.WriteAllText(tempProjectPath, $$"""
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>{{escapedAssemblyName}}</AssemblyName>
+    <UseAppHost>true</UseAppHost>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+    <RuntimeIdentifier>{{runtimeIdentifier}}</RuntimeIdentifier>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="feisharp">
+      <HintPath>{{escapedRuntimeAssemblyPath}}</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>
+""");
+
+            File.WriteAllText(tempProgramPath, $$"""
+using System.Text;
+using FeiSharp8._5RuntimeSdk;
+using FeiSharpTerminal3._1;
+
+Console.OutputEncoding = Encoding.Unicode;
+Console.InputEncoding = Encoding.Unicode;
+ExecutionCancellation.Initialize();
+FeiSharpProgramData.AssemblyName = Guid.NewGuid().ToString("N");
+FeiSharp8._5RuntimeSdk.Program._applicationPath = AppContext.BaseDirectory;
+var sourceCode = Encoding.UTF8.GetString(Convert.FromBase64String("{{base64Source}}"));
+FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
+""");
+
+            var buildProcess = new Process();
+            buildProcess.StartInfo = new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                WorkingDirectory = tempRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            buildProcess.StartInfo.ArgumentList.Add("build");
+            buildProcess.StartInfo.ArgumentList.Add(tempProjectPath);
+            buildProcess.StartInfo.ArgumentList.Add("-c");
+            buildProcess.StartInfo.ArgumentList.Add("Release");
+            buildProcess.StartInfo.ArgumentList.Add("-o");
+            buildProcess.StartInfo.ArgumentList.Add(tempBuildDirectory);
+
+            buildProcess.Start();
+            string buildStandardOutput = buildProcess.StandardOutput.ReadToEnd();
+            string buildStandardError = buildProcess.StandardError.ReadToEnd();
+            buildProcess.WaitForExit();
+
+            if (buildProcess.ExitCode != 0)
+            {
+                errorMessage = string.IsNullOrWhiteSpace(buildStandardError) ? buildStandardOutput : buildStandardError;
+                return false;
+            }
+
+            string builtDllPath = Path.Combine(tempBuildDirectory, assemblyName + ".dll");
+            if (!File.Exists(builtDllPath))
+            {
+                errorMessage = $"Build succeeded, but the generated dll was not found at {builtDllPath}.";
+                return false;
+            }
+
+            var publishProcess = new Process();
+            publishProcess.StartInfo = new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                WorkingDirectory = tempRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            publishProcess.StartInfo.ArgumentList.Add("publish");
+            publishProcess.StartInfo.ArgumentList.Add(tempProjectPath);
+            publishProcess.StartInfo.ArgumentList.Add("-c");
+            publishProcess.StartInfo.ArgumentList.Add("Release");
+            publishProcess.StartInfo.ArgumentList.Add("-o");
+            publishProcess.StartInfo.ArgumentList.Add(tempPublishDirectory);
+
+            publishProcess.Start();
+            string publishStandardOutput = publishProcess.StandardOutput.ReadToEnd();
+            string publishStandardError = publishProcess.StandardError.ReadToEnd();
+            publishProcess.WaitForExit();
+
+            if (publishProcess.ExitCode != 0)
+            {
+                errorMessage = string.IsNullOrWhiteSpace(publishStandardError) ? publishStandardOutput : publishStandardError;
+                return false;
+            }
+
+            string publishedExePath = Path.Combine(tempPublishDirectory, assemblyName + ".exe");
+            if (!File.Exists(publishedExePath))
+            {
+                errorMessage = $"Build succeeded, but the generated exe was not found at {publishedExePath}.";
+                return false;
+            }
+
+            File.Copy(publishedExePath, outputExePath, true);
+            File.Copy(builtDllPath, Path.ChangeExtension(outputExePath, ".dll"), true);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            return false;
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(tempRoot))
+                {
+                    Directory.Delete(tempRoot, true);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    public static async Task Main(string[] args)
     {
         #region <head></head>
         //head
-        global::System.UInt16 uIntptrID = UINT16_WINDOWS_X64_COLOR_ID_GREY;
-        Console.Title = "FeiSharp Terminal 8.0";
-        Console.WriteLine("FeiSharp 8.0 (tags/v8.0:0671451, Jan 6 2025, 20:58:14) [MSC v.1942 64 bit (AMD64)] on win32\r\nType \"help\", \"copyright\", \"credits\" or \"license\" for more information.");
+        Console.OutputEncoding = Encoding.Unicode;
+        Console.InputEncoding = Encoding.Unicode;
+        ExecutionCancellation.Initialize();
+        if (args.Length == 0)
+            FeiSharpTests.RunAllTests();
+        TryConfigureConsole(() => Console.CursorSize = 25);
+        FeiSharpProgramData.AssemblyName = Guid.NewGuid().ToString("N");
+        TryConfigureConsole(EnableVirtualTerminalProcessing);
+        TryConfigureConsole(() => Console.CursorVisible = true);
+        TryConfigureConsole(() => Console.Title = dynamicTitle);
+
+        // 漂亮的启动标题
+        AnsiConsole.Write(
+            new FigletText("FeiSharp SDK 9.0")
+                .Color(Color.Cyan1));
+
+        var rule = new Rule($"[yellow]Version 9.0[/]")
+        {
+            Style = Style.Parse("blue"),
+            Justification = Justify.Left
+        };
+        AnsiConsole.Write(rule);
+
+        // 创建信息面板
+        var infoPanel = new Panel(
+            "[grey]FeiSharp 9.0 (tags/v9.0, Apr 7 2026, 20:49:47) MSC v.1942 64 bit (AMD64) on win32[/]\n" +
+            "[grey]Type [green]\"help\"[/], [green]\"copyright\"[/], [green]\"credits\"[/] or [green]\"license\"[/] for more information.[/]")
+            .Border(BoxBorder.Rounded)
+            .BorderStyle(Style.Parse("grey"))
+            .Padding(1, 1, 1, 1);
+
+        AnsiConsole.Write(infoPanel);
+        AnsiConsole.WriteLine();
         //end head
         #endregion
-        if (args.Length > 0) {
-            global::System.String sourceCode = File.ReadAllText(args[1]);
-            Lexer lexer = new(sourceCode);
-            List<Token> tokens = [];
-            Token token;
-            do
-            {
-                token = lexer.NextToken();
 
-                tokens.Add(token);
-            } while (token.Type != TokenTypes.EndOfFile);
-            Parser parser = new(tokens);
-            parser.OutputEvent += (s, e) =>
+        if (args.Length > 0 && string.Equals(args[0], "--build", StringComparison.OrdinalIgnoreCase))
+        {
+            if (args.Length < 2)
             {
-                Console.WriteLine(e.Message);
-            };
+                var usagePanel = new Panel("[red]Usage: feisharp --build <source.fsc|project.feiproj> [output.exe][/]")
+                    .Border(BoxBorder.Rounded)
+                    .BorderStyle(Style.Parse("red"));
+                AnsiConsole.Write(usagePanel);
+                return;
+            }
+
+            string? outputArg = args.Length > 2 ? args[2] : null;
+            await AnsiConsole.Status()
+                .StartAsync("[yellow]Building executable...[/]", async ctx =>
+                {
+                    if (TryBuildExecutable(args[1], outputArg, out string builtExePath, out string buildError))
+                    {
+                        var successPanel = new Panel($"[green]✓ Build completed:[/] [yellow]{builtExePath}[/]")
+                            .Border(BoxBorder.Rounded)
+                            .BorderStyle(Style.Parse("green"));
+                        AnsiConsole.Write(successPanel);
+                    }
+                    else
+                    {
+                        var errorPanel = new Panel($"[red]✗ Build failed:[/] {buildError.EscapeMarkup()}")
+                            .Border(BoxBorder.Rounded)
+                            .BorderStyle(Style.Parse("red"));
+                        AnsiConsole.Write(errorPanel);
+                    }
+
+                    await Task.CompletedTask;
+                });
+            return;
+        }
+
+        if (args.Length > 0)
+        {
+            string? sourcePath = ResolveFeiSharpSourcePath(args[0]);
+            if (sourcePath == null)
+            {
+                var errorPanel = new Panel($"[red]✗ File not found:[/] {args[0].EscapeMarkup()}")
+                    .Border(BoxBorder.Rounded)
+                    .BorderStyle(Style.Parse("red"));
+                AnsiConsole.Write(errorPanel);
+                return;
+            }
+
+            global::System.String sourceCode = File.ReadAllText(sourcePath);
+            _applicationPath = sourcePath;
+            RunFeiSharpCodeWithProProcesser(sourceCode);
+            AnsiConsole.Markup("[grey]Press any key to continue...[/]");
+            Console.ReadKey(true);
+            _applicationPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            return;
+        }
+
+        while (true)
+        {
+            // 漂亮的提示符
+            var prompt = new TextPath(Directory.GetCurrentDirectory())
+                .RootColor(Color.Red)
+                .SeparatorColor(Color.Green)
+                .StemColor(Color.Blue)
+                .LeafColor(Color.Yellow);
+
+            AnsiConsole.Write(prompt);
+            AnsiConsole.Markup("[cyan1]>[/] ");
+
+            global::System.String? command = null;
             try
             {
-                parser.ParseStatements();
+                command = Console.ReadLine();
             }
-            catch (Exception ex)
+            catch (OperationCanceledException)
             {
-                if (ex.Message == "The given key 'exit' was not present in the dictionary." || ex.Message == "The given key ';' was not present in the dictionary.")
+                // Ctrl+C 在 ReadLine 中被按下
+                Console.WriteLine(); // 换行
+                if (ExecutionCancellation._isExecuting)
                 {
+                    // 如果在执行代码，取消执行
+                    ExecutionCancellation.CancelExecution();
+                    AnsiConsole.MarkupLine("[yellow]Execution cancelled[/]");
+                }
+                continue;
+            }
+
+            // 处理 null 情况（通常是 Ctrl+C）
+            if (command == null)
+            {
+                Console.WriteLine(); // 换行
+                if (ExecutionCancellation._isExecuting)
+                {
+                    ExecutionCancellation.CancelExecution();
+                    AnsiConsole.MarkupLine("[yellow]Execution cancelled[/]");
                 }
                 else
                 {
-                    Console.WriteLine("Parsing error: " + ex.Message);
+                    AnsiConsole.MarkupLine("[yellow]Use 'exit' to quit FeiSharp[/]");
                 }
+                continue;
             }
-            Console.WriteLine("Press any key to continue......");
-            Console.ReadKey();
-        }
-        while (true)
-        {
-            CustomConsole.WRITE_GREY_WITHOUT_LINE(">>>", WIN_X64_UINT16_PTR_FOR_16BYTES:uIntptrID);
-           global::System.String command = Console.ReadLine();
+
+            // 处理空命令
+            if (string.IsNullOrWhiteSpace(command))
+            {
+                continue;
+            }
             if (command == "exit")
             {
+                AnsiConsole.MarkupLine("[red]Shutting down FeiSharp... Goodbye![/]");
                 global::System.Environment.Exit(0);
             }
-            else if (command.Contains("run"))
+            else if (command == "ui")
             {
-                Console.WriteLine(">>>\"Input these codes......Enter 'exit' to exit this mode......\"");
-               global::System.String code = "";
-               global::System.String scode = "";
-                while (code != "exit")
-                {
-                    if (code != "exit")
-                    {
-                        code = Console.ReadLine();
-                        scode += code;
-                    }
-                    else
-                    {
-                        Console.WriteLine(">>>:\"User enter the 'exit' to exit this mode at \"" + DateTime.Now);
-                        break;
-                    }
-                }
-               global::System.String sourceCode = scode;
-                Lexer lexer = new(sourceCode);
-                List<Token> tokens = [];
-                Token token;
-                do
-                {
-                    token = lexer.NextToken();
+                AnsiConsole.Markup("[cyan]Source File: [/]");
+                string path = Console.ReadLine();
+                string exePath = Path.ChangeExtension(Assembly.GetExecutingAssembly().Location, ".exe").Replace("feisharp.exe", "UiG.exe").Replace("FeiSharpTerminal3.1\\bin\\Debug\\net8.0-windows", "UiG\\bin\\Debug\\net8.0-windows");
 
-                    tokens.Add(token);
-                } while (token.Type != TokenTypes.EndOfFile);
+                var statusPanel = new Panel($"[yellow]Launching UI with file:[/] [green]{path}[/]")
+                    .Border(BoxBorder.Rounded)
+                    .BorderStyle(Style.Parse("yellow"));
+                AnsiConsole.Write(statusPanel);
 
-                Parser parser = new(tokens);
-                parser.OutputEvent += (s, e) =>
+                Process.Start(exePath, path);
+            }
+            else if (command == "run")
+            {
+                ChangeDynamicTitle(EDT_CDE);
+                AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Input your code... Enter 'exit' to exit this mode...[/]");
+                var rule1 = new Rule("[yellow]Code Input Mode[/]")
                 {
-                    Console.WriteLine(e.Message);
+                    Style = Style.Parse("green"),
+                    Justification = Justify.Center
                 };
-                try
-                {
-                    parser.ParseStatements();
-                }
-                catch (Exception ex)
-                {
-                    if(ex.Message == "The given key 'exit' was not present in the dictionary." || ex.Message == "The given key ';' was not present in the dictionary.")
-                    {
-                        continue;
-                    }
-                    Console.WriteLine("Parsing error: " + ex.Message);
-                }
-            }
-            else if(command == "Console-Beep")
-            {
-                Console.Beep();
-            }
-            else if (command == "Run-WindowsPUI")
-            {
-                Console.WriteLine(">>>\"Input these codes......Enter 'exit' to exit this mode......\"");
-                global::System.String code = "";
-                global::System.String scode = "";
-                while (code != "exit")
-                {
-                    if (code != "exit")
-                    {
-                        code = Console.ReadLine();
-                        scode += code;
-                    }
-                    else
-                    {
-                        Console.WriteLine(">>>:\"User enter the 'exit' to exit this mode at \"" + DateTime.Now);
-                        break;
-                    }
-                }
-                File.WriteAllText(@"C:\Users\benba\Documents\UI-Parser-TO_CODE_#UI#FEIFEI_L_DATE9.FROMCODETXT", scode);
-                Process.Start("WindowsPUI.exe");
-            }
-            else if(command == "Introduction-Started")
-            {
-                Console.WriteLine(Introduction.GetIntroduction());
-                Console.WriteLine("Please select lang:");
-                Introduction.Lang = (Lang)Enum.Parse(typeof(Lang), Console.ReadLine());
-                Console.WriteLine(Introduction.NameSelecter.GetName());
-            }
-            else if(command == "Custom-Console-Beep")
-            {
-                Console.Beep(int.Parse(Console.ReadLine()), int.Parse(Console.ReadLine()));
-            }
-            else if(command == "Edit-CodeFile")
-            {
-                Console.WriteLine("This is a color screen feature.");
-                Console.WriteLine("[sudo]Please enter the password for Alueip Fei:");
-                Console.ReadLine();
-                Console.WriteLine("Error,attack");
-                Thread.Sleep(1000);
-                while (true)
-                {
-                    Console.WriteLine(Guid.NewGuid()+":attack!!!!!!!!");
-                    Console.BackgroundColor = (ConsoleColor)Random.Shared.Next(1,14);
-                    Console.ForegroundColor = (ConsoleColor)Random.Shared.Next(1, 14);
-                }
-            }
-            else if (command.Contains("file"))
-            {
-                Console.WriteLine(">>>:\"Input the path......\"");
-               global::System.String sourceCode = File.ReadAllText(Console.ReadLine());
-                Lexer lexer = new(sourceCode);
-                List<Token> tokens = [];
-                Token token;
-                do
-                {
-                    token = lexer.NextToken();
+                AnsiConsole.Write(rule1);
+                RunFeiSharpCodeWithProProcesser(GetUserCode());
+                ChangeDynamicTitle(IN_CMD);
 
-                    tokens.Add(token);
-                } while (token.Type != TokenTypes.EndOfFile);
-                Parser parser = new(tokens);
-                parser.OutputEvent += (s, e) =>
-                {
-                    Console.WriteLine(e.Message);
-                };
-                try
-                {
-                    parser.ParseStatements();
-                }
-                catch (Exception ex)
-                {
-                    if (ex.Message == "The given key 'exit' was not present in the dictionary." || ex.Message == "The given key ';' was not present in the dictionary.")
-                    {
-                        continue;
-                    }
-                    Console.WriteLine("Parsing error: " + ex.Message);
-                }
             }
-            else if (command.Contains("nsbuild"))
+            else if (command == "file")
             {
-                Console.WriteLine(">>>:\"Input these codes......Enter 'exit' to exit this mode......\"");
-               global::System.String code = "";
-               global::System.String scode = "";
-                while (code != "exit")
+                AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Input the file path...[/]");
+                AnsiConsole.Markup("[cyan]File Path: [/]");
+                string path = Console.ReadLine();
+                string? sourcePath = ResolveFeiSharpSourcePath(path);
+                if (sourcePath == null)
                 {
-                    if (code != "exit")
-                    {
-                        code = Console.ReadLine();
-                        scode += code;
-                    }
-                    else
-                    {
-                        Console.WriteLine(">>>:\"User enter the 'exit' to exit this mode at \"" + DateTime.Now);
-                        break;
-                    }
+                    var errorPanel = new Panel($"[red]✗ File not found:[/] {path.EscapeMarkup()}")
+                        .Border(BoxBorder.Rounded)
+                        .BorderStyle(Style.Parse("red"));
+                    AnsiConsole.Write(errorPanel);
+                    continue;
                 }
-               global::System.String sourceCode = scode;
-                Lexer lexer = new(sourceCode);
-                List<Token> tokens = [];
-                Token token;
-                do
-                {
-                    token = lexer.NextToken();
 
-                    tokens.Add(token);
-                } while (token.Type != TokenTypes.EndOfFile);
+                var statusPanel = new Panel($"[yellow]Loading file:[/] [green]{sourcePath}[/]")
+                    .Border(BoxBorder.Rounded)
+                    .BorderStyle(Style.Parse("green"));
+                AnsiConsole.Write(statusPanel);
 
-                Parser parser = new(tokens);
-                parser.OutputEvent += (s, e) =>
-                {
-                    Console.WriteLine(e.Message);
-                };
-                bool isvalid = true;
-                try
-                {
+                global::System.String sourceCode = File.ReadAllText(sourcePath);
+                _applicationPath = sourcePath;
 
-                    parser.ParseStatements();
+                RunFeiSharpCodeWithProProcesser(sourceCode);
+
+                _applicationPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            }
+            else if (command == "build" || command.StartsWith("build "))
+            {
+                string sourceInput = command.Length > 5 ? command[5..].Trim() : string.Empty;
+                if (string.IsNullOrWhiteSpace(sourceInput))
+                {
+                    AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Input the source file or project path...[/]");
+                    AnsiConsole.Markup("[cyan]Source Path: [/]");
+                    sourceInput = Console.ReadLine() ?? string.Empty;
                 }
-                catch (Exception ex)
-                {
-                    isvalid = false;
-                    if (ex.Message == "The given key 'exit' was not present in the dictionary." || ex.Message == "The given key ';' was not present in the dictionary.")
+                string? outputInput = "bin\\obj\\feisharp.sdk 9.0\\" + Path.GetFileNameWithoutExtension(sourceInput) + ".exe";
+                await AnsiConsole.Status()
+                    .StartAsync("[yellow]Building executable...[/]", async ctx =>
                     {
-                        isvalid = true;
-                        continue;
-                    }
-                    Console.WriteLine("Your code has some mistake, please try again.");
-                }
-                if (isvalid)
-                {
-                    Console.WriteLine("Your code is correct, will you save the code?(y/n)");
-                   global::System.String yn = Console.ReadLine();
-                    if (yn == "y")
-                    {
-                        Console.WriteLine(">>>:\"Please enter the file path:\"");
-                       global::System.String path = Console.ReadLine();
-                        bool isarg = true;
-                        try
+                        if (TryBuildExecutable(sourceInput, outputInput, out string builtExePath, out string buildError))
                         {
-                            File.WriteAllText(path, sourceCode);
+                            var successPanel = new Panel($"[green]✓ Build completed:[/] [yellow]{builtExePath}[/]")
+                                .Border(BoxBorder.Rounded)
+                                .BorderStyle(Style.Parse("green"));
+                            AnsiConsole.Write(successPanel);
                         }
-                        catch
+                        else
                         {
-                            isarg = false;
-                            Console.WriteLine(">>>:\"Args is error......Please try again\"");
+                            var errorPanel = new Panel($"[red]✗ Build failed:[/] {buildError.EscapeMarkup()}")
+                                .Border(BoxBorder.Rounded)
+                                .BorderStyle(Style.Parse("red"));
+                            AnsiConsole.Write(errorPanel);
                         }
-                        if (isarg)
-                        {
-                            Console.WriteLine(">>>:\"Save successful.\"");
-                        }
-                    }
-                    else
-                    {
-                        Console.WriteLine(">>>:\"User enter the 'exit' to exit this mode at \"" + DateTime.Now);
-                    }
-                }
+
+                        await Task.CompletedTask;
+                    });
             }
-            else if (command == "path")
+            else if (command == "pwd")
             {
-                Console.WriteLine(Directory.GetCurrentDirectory());
+                var path = new TextPath(Directory.GetCurrentDirectory())
+                    .RootColor(Color.Red)
+                    .SeparatorColor(Color.Green)
+                    .StemColor(Color.Blue)
+                    .LeafColor(Color.Yellow);
+
+                AnsiConsole.Markup("[cyan]Current Directory: [/]");
+                AnsiConsole.Write(path);
+                AnsiConsole.WriteLine();
             }
             else if (command == "cd..")
             {
+                var oldPath = Directory.GetCurrentDirectory();
                 Directory.SetCurrentDirectory(Directory.GetParent(Directory.GetCurrentDirectory()).FullName);
+                var newPath = Directory.GetCurrentDirectory();
+
+                AnsiConsole.MarkupLine($"[grey]Changed directory from[/] [red]{oldPath}[/] [grey]to[/] [green]{newPath}[/]");
             }
-            else if (command.Contains("cd"))
+            else if (command.StartsWith("cd "))
             {
+                var oldPath = Directory.GetCurrentDirectory();
                 Directory.SetCurrentDirectory(command.Split(' ')[1]);
+                var newPath = Directory.GetCurrentDirectory();
+
+                AnsiConsole.MarkupLine($"[grey]Changed directory from[/] [red]{oldPath}[/] [grey]to[/] [green]{newPath}[/]");
             }
-            else if (command == "cls")
+            else if (command == "cls" || command == "clear")
             {
                 Console.Clear();
+
+                // 重新显示标题
+                AnsiConsole.Write(
+                    new FigletText("FeiSharp")
+                        .Color(Color.Cyan1));
+            }
+            else if (command.StartsWith("create "))
+            {
+                if (command.Split(' ').Length == 3)
+                {
+                    string name = string.Concat(command.Split(' ')[2].Select(c => Path.GetInvalidPathChars().Contains(c) ? '_' : c)).Trim();
+                    switch (command.Split(' ')[1])
+                    {
+                        case "Console":
+                            Directory.CreateDirectory(name);
+                            Directory.SetCurrentDirectory(name);
+                            File.WriteAllText($"test_{name}1.fsc", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction test()\nfbegin:\n    print(\"Hello, World!\");\nfend;\ntest();");
+                            File.WriteAllText($"main_{name}.fsc", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction main()\nfbegin:\n    printnl(\"Hello, World!\");\nfend;\nmain();");
+                            File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
+                            File.WriteAllText("api.fsc", "anno(\"Create your own API functions in this file\");");
+                            File.WriteAllText("README.md", $"This is the console project {name}");
+                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create console project {name} by FeiSharp Target SDK 9.0\n");
+                            File.WriteAllText(".gitignore", @"# 编译输出
+bin/
+obj/
+*.exe
+*.dll
+
+# 测试文件夹
+Tests/
+
+# 日志文件
+*.log
+
+# IDE 配置
+.vs/
+.vscode/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+");
+                            File.WriteAllText($"license.txt", "Your license file, for example: MIT");
+                            File.WriteAllText($"{name}.feiproj", @$"{{
+    ""project_name"": ""{name}"",
+    ""project_main_file"": ""main_{name}.fsc"",
+    ""sdk_version"": 9.0
+}}");
+                            break;
+                        case "API":
+                            Directory.CreateDirectory(name);
+                            Directory.SetCurrentDirectory(name);
+                            File.WriteAllText($"{name}.feiproj", @$"{{
+    ""project_name"": ""{name}"",
+    ""project_main_file"": ""main_{name}.fsc"",
+    ""sdk_version"": 9.0
+}}");
+                            File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction test()\nfbegin:\n    print(\"Hello, World!\");\nfend;\ntest();");
+                            File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
+                            File.WriteAllText("api.fsc", "anno(\"Create your own API functions in this file\");");
+                            File.WriteAllText("README.md", $"This is the api project {name}");
+                            File.WriteAllText(".gitignore", @"
+bin/
+obj/
+*.exe
+*.dll
+Tests/
+*.log
+.vs/
+.vscode/
+.DS_Store
+Thumbs.db
+");
+                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 9.0\n");
+                            File.WriteAllText($"license.txt", "Your license file, for example: MIT");
+                            break;
+                        case "Data":
+                            Directory.CreateDirectory(name);
+                            Directory.SetCurrentDirectory(name);
+                            File.WriteAllText($"{name}.feiproj", @$"{{
+    ""project_name"": ""{name}"",
+    ""project_main_file"": ""main_{name}.fsc"",
+    ""sdk_version"": 9.0
+}}");
+                            File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nfunction test()\nfbegin:\n    print(\"Hello, World!\");\nfend;\ntest();");
+                            File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
+                            File.WriteAllText("README.md", $"This is the api project {name}");
+                            File.WriteAllText(".gitignore", @"
+bin/
+obj/
+*.exe
+*.dll
+Tests/
+*.log
+.vs/
+.vscode/
+.DS_Store
+Thumbs.db
+");
+                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 9.0\n");
+                            File.WriteAllText($"license.txt", "Your license file, for example: MIT");
+                            break;
+                        case "fUnitTest":
+                            Directory.CreateDirectory(name);
+                            Directory.SetCurrentDirectory(name);
+                            File.WriteAllText($"{name}.feiproj", @$"{{
+    ""project_name"": ""{name}"",
+    ""project_main_file"": ""main_{name}.fsc"",
+    ""sdk_version"": 9.0
+}}");
+                            File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/test_content.fsc\";\nimport \"~/api.fsc\";\nfunction test()\nfbegin:\n    print(\"Hello, World!\");\nfend;\ntest();");
+                            File.WriteAllText("test_content.fsc", "anno(\"Set the test content\");");
+                            File.WriteAllText("README.md", $"This is the api project {name}");
+                            File.WriteAllText(".gitignore", @"
+bin/
+obj/
+*.exe
+*.dll
+Tests/
+*.log
+.vs/
+.vscode/
+.DS_Store
+Thumbs.db
+");
+                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 9.0\n");
+                            File.WriteAllText($"license.txt", "Your license file, for example: MIT");
+                            break;
+                        default:
+                            var errorPanel = new Panel("[red]✗ The type isn't correct/]")
+                                    .Border(BoxBorder.Rounded)
+                                    .BorderStyle(Style.Parse("red"));
+                                    AnsiConsole.Write(errorPanel);
+                            break;
+                    }
+                }
             }
             else if (command == "feedback")
             {
-                Console.WriteLine("Please write a feedback:");
-               global::System.String fb = Console.ReadLine();
-               global::System.String _1 = Directory.GetParent(Directory.GetCurrentDirectory()).FullName;
-                Directory.SetCurrentDirectory(_1);
-               global::System.String _2 = Directory.GetParent(Directory.GetCurrentDirectory()).FullName;
-                Directory.SetCurrentDirectory(_2);
-               global::System.String _3 = Directory.GetParent(Directory.GetCurrentDirectory()).FullName;
-                Directory.SetCurrentDirectory(_3);
-               global::System.String _4 = Directory.GetParent(Directory.GetCurrentDirectory()).FullName;
-                Directory.SetCurrentDirectory(_4);
-                File.AppendAllText("README.md", fb + "\\");
-                File.WriteAllText("a.bat","git add .\r\ngit commit -m \"Commit FeedBack.\"\r\ngit push");
-                Process.Start("a.bat");
-                File.Delete("a.bat");
-                
+                AnsiConsole.Markup("[yellow]Please enter your feedback: [/]");
+                string feedback = Console.ReadLine();
+
+                await AnsiConsole.Status()
+                    .StartAsync("[cyan]Sending feedback...[/]", async ctx =>
+                    {
+                        try
+                        {
+                            TcpClient client = new TcpClient(PublicIpFetcher.GetPublicIpAsync().Result, 6721);
+                            try
+                            {
+                                NetworkStream stream = client.GetStream();
+                                byte[] data = Encoding.UTF8.GetBytes(feedback);
+                                await stream.WriteAsync(data, 0, data.Length);
+
+                                var successPanel = new Panel("[green]✓ Feedback sent successfully![/]")
+                                    .Border(BoxBorder.Rounded)
+                                    .BorderStyle(Style.Parse("green"));
+                                AnsiConsole.Write(successPanel);
+                            }
+                            catch
+                            {
+                                var errorPanel = new Panel("[red]✗ Failed to send feedback[/]")
+                                    .Border(BoxBorder.Rounded)
+                                    .BorderStyle(Style.Parse("red"));
+                                AnsiConsole.Write(errorPanel);
+                            }
+                            finally
+                            {
+                                client.Close();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
+                        }
+                    });
             }
-            else if (command.Contains("version"))
+            else if (command.StartsWith("version"))
             {
                 if (command == "version")
                 {
-                    Console.WriteLine(">>>FeiSharp Console-Edition 8.0");
+                    var versionPanel = new Panel("[yellow]FeiSharp Target SDK 9.0[/]")
+                        .Header(" [cyan]Version Info[/] ")
+                        .Border(BoxBorder.Rounded)
+                        .BorderStyle(Style.Parse("blue"));
+                    AnsiConsole.Write(versionPanel);
                 }
                 else if (command.Split(' ')[1] == "--update")
                 {
-                    Console.WriteLine(">>>Finding update file from web......");
+                    AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Finding update file from web...[/]");
+
+                    await AnsiConsole.Progress()
+                        .StartAsync(async ctx =>
+                        {
+                            var task = ctx.AddTask("[green]Checking for updates[/]");
+
+                            while (!task.IsFinished)
+                            {
+                                await Task.Delay(100);
+                                task.Increment(2);
+                            }
+                        });
+
                     if (IsConnectedToInternet())
                     {
                         Thread.Sleep(Random.Shared.Next(1500, 4000));
-                        Console.WriteLine(">>>No much update file for download.");
+                        var noUpdatePanel = new Panel("[yellow]No updates available at this time.[/]")
+                            .Border(BoxBorder.Rounded)
+                            .BorderStyle(Style.Parse("yellow"));
+                        AnsiConsole.Write(noUpdatePanel);
                     }
                     else
                     {
-                        Console.WriteLine(">>>You are not online.");
+                        var offlinePanel = new Panel("[red]You are currently offline.[/]")
+                            .Border(BoxBorder.Rounded)
+                            .BorderStyle(Style.Parse("red"));
+                        AnsiConsole.Write(offlinePanel);
                     }
                 }
                 else if (command.Split(' ')[1] == "--select")
                 {
-                    Console.WriteLine(">>>Please select version:");
-                    Console.WriteLine("----1.FeiSharp Console-Edition 7.5");
-                    Console.WriteLine("----2.FeiSharp Console-Edition 7.0");
-                    Console.WriteLine("----3.FeiSharp Base Lexer");
-                    try
-                    {
-                        char a = Console.ReadLine().ToCharArray()[0];
-                        if (char.IsDigit(a))
+                    var version = AnsiConsole.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("[cyan]Please select a version:[/]")
+                            .PageSize(10)
+                            .AddChoices(new[] {
+                                "FeiSharp Core 2.0",
+                                "FeiSharp Core 3.0",
+                                "FeiSharp Core 4.0",
+                                "FeiSharp Core 5.0",
+                                "FeiSharp Target SDK 6.0",
+                                "FeiSharp Target SDK 7.0",
+                                "FeiSharp Target SDK 8.0",
+                                "FeiSharp Target SDK 9.0",
+                                "FeiSharp Beta Preview SDK 10.0",
+                            }));
+
+                    AnsiConsole.Status()
+                        .Start("[yellow]Updating version...[/]", ctx =>
                         {
-                            int aInt = Convert.ToInt32(a.ToString());
-                            if (aInt > 0 && aInt < 4)
+                            if (version == "FeiSharp Target SDK 9.0")
                             {
-                                Console.WriteLine(">>>Edit version......");
-                                try
-                                {
-                                    using (Ping ping = new Ping())
-                                    {
-                                        PingReply reply = ping.Send("https://github.com", 1000);
-                                    }
-                                    Console.WriteLine(">>>Edit successfully.");
-                                }
-                                catch (PingException)
-                                {
-                                    Console.WriteLine(">>>Can not connect to github.com.");
-                                }
+                                var successPanel = new Panel($"[red]× FeiSharp Target SDK 9.0 is current version now[/]")
+                                    .Border(BoxBorder.Rounded)
+                                    .BorderStyle(Style.Parse("red"));
+                                AnsiConsole.Write(successPanel);
+                                return;
                             }
-                        }
-                    }
-                    catch
-                    {
-                        Console.WriteLine(">>>Invalid format.");
-                    }
+                            Thread.Sleep(1500); // 模拟处理时间
+
+                            if (IsConnectedToInternet())
+                            {
+                                var successPanel = new Panel($"[green]✓ Successfully switched to {version}[/]")
+                                    .Border(BoxBorder.Rounded)
+                                    .BorderStyle(Style.Parse("green"));
+                                AnsiConsole.Write(successPanel);
+                            }
+                            else
+                            {
+                                var offlinePanel = new Panel("[red]Cannot connect to update server[/]")
+                                    .Border(BoxBorder.Rounded)
+                                    .BorderStyle(Style.Parse("red"));
+                                AnsiConsole.Write(offlinePanel);
+                            }
+                        });
                 }
             }
             else if (command == "license")
             {
-                Console.WriteLine("Copyright (c) 2024-2025 Newsoft FeiSharp\r\n\r\nLicensed under the Apache License, Version 2.0 (the \"License\");\r\nyou may not use this software except in compliance with the License.\r\nYou may obtain a copy of the License at\r\n\r\n    http://www.apache.org/licenses/LICENSE-2.0\r\n\r\nUnless required by law or agreed to in writing, no person shall:\r\n1. sublicense, sell, rent, lease, or otherwise distribute the Software without the express written permission of the copyright holders;\r\n2. modify the Software without the express written permission of the copyright holders;\r\n3. sublicense the Software under any other license without the express written permission of the copyright holders;\r\n4. sublicense the Software to any person or entity without the express written permission of the copyright holders;\r\n5. sublicense the Software to any person or entity in any jurisdiction without the express written permission of the copyright holders;\r\n6. sublicense the Software to any person or entity in any country without the express written permission of the copyright holders;\r\n7. sublicense the Software to any person or entity in any language without the express written permission of the copyright holders;\r\n8. sublicense the Software to any person or entity in any format without the express written permission of the copyright holders;\r\n9. sublicense the Software to any person or entity in any medium without the express written permission of the copyright holders;\r\n10. sublicense the Software to any person or entity in any context without the express written permission of the copyright holders;\r\n11. sublicense the Software to any person or entity in any way without the express written permission of the copyright holders;\r\n12. sublicense the Software to any person or entity in any form without the express written permission of the copyright holders;\r\n13. sublicense the Software to any person or entity in any manner without the express written permission of the copyright holders;\r\n14. sublicense the Software to any person or entity in any means without the express written permission of the copyright holders;\r\n15. sublicense the Software to any person or entity in any case without the express written permission of the copyright holders;\r\n16. sublicense the Software to any person or entity in any instance without the express written permission of the copyright holders;\r\n17. sublicense the Software to any person or entity in any situation without the express written permission of the copyright holders;\r\n18. sublicense the Software to any person or entity in any circumstance without the express written permission of the copyright holders;\r\n19. sublicense the Software to any person or entity in any condition without the express written permission of the copyright holders;\r\n20. sublicense the Software to any person or entity in any respect without the express written permission of the copyright holders;\r\n21. sublicense the Software to any person or entity in any regard without the express written permission of the copyright holders;\r\n22. sublicense the Software to any person or entity in any way whatsoever without the express written permission of the copyright holders;\r\n23. sublicense the Software to any person or entity in any other way without the express written permission of the copyright holders;\r\n24. sublicense the Software to any person or entity in any other form without the express written permission of the copyright holders;\r\n25. sublicense the Software to any person or entity in any other manner without the express written permission of the copyright holders;\r\n26. sublicense the Software to any person or entity in any other means without the express written permission of the copyright holders;\r\n27. sublicense the Software to any person or entity in any other case without the express written permission of the copyright holders;\r\n28. sublicense the Software to any person or entity in any other instance without the express written permission of the copyright holders;\r\n29. sublicense the Software to any person or entity in any other situation without the express written permission of the copyright holders;\r\n30. sublicense the Software to any person or entity in any other circumstance without the express written permission of the copyright holders;\r\n31. sublicense the Software to any person or entity in any other condition without the express written permission of the copyright holders;\r\n32. sublicense the Software to any person or entity in any other respect without the express written permission of the copyright holders;\r\n33. sublicense the Software to any person or entity in any other regard without the express written permission of the copyright holders;\r\n34. sublicense the Software to any person or entity in any other way whatsoever without the express written permission of the copyright holders;\r\n\r\nIf you do sublicense the Software, you must also:\r\n1. sublicense the Software under the License;\r\n2. sublicense the Software to any person or entity in any jurisdiction under the License;\r\n3. sublicense the Software to any person or entity in any country under the License;\r\n4. sublicense the Software to any person or entity in any language under the License;\r\n5. sublicense the Software to any person or entity in any format under the License;\r\n6. sublicense the Software to any person or entity in any medium under the License;\r\n7. sublicense the Software to any person or entity in any context under the License;\r\n8. sublicense the Software to any person or entity in any way under the License;\r\n9. sublicense the Software to any person or entity in any form under the License;\r\n10. sublicense the Software to any person or entity in any manner under the License;\r\n11. sublicense the Software to any person or entity in any means under the License;\r\n12. sublicense the Software to any person or entity in any case under the License;\r\n13. sublicense the Software to any person or entity in any instance under the License;\r\n14. sublicense the Software to any person or entity in any situation under the License;\r\n15. sublicense the Software to any person or entity in any circumstance under the License;\r\n16. sublicense the Software to any person or entity in any condition under the License;\r\n17. sublicense the Software to any person or entity in any respect under the License;\r\n18. sublicense the Software to any person or entity in any regard under the License;\r\n19. sublicense the Software to any person or entity in any way whatsoever under the License;\r\n20. sublicense the Software to any person or entity in any other way under the License;\r\n21. sublicense the Software to any person or entity in any other form under the License;\r\n22. sublicense the Software to any person or entity in any other manner under the License;\r\n23. sublicense the Software to any person or entity in any other means under the License;\r\n24. sublicense the Software to any person or entity in any other case under the License;\r\n25. sublicense the Software to any person or entity in any other instance under the License;\r\n26. sublicense the Software to any person or entity in any other situation under the License;\r\n27. sublicense the Software to any person or entity in any other circumstance under the License;\r\n28. sublicense the Software to any person or entity in any other condition under the License;\r\n29. sublicense the Software to any person or entity in any other respect under the License;\r\n30. sublicense the Software to any person or entity in any other regard under the License;\r\n31. sublicense the Software to any person or entity in any other way whatsoever under the License;\r\n\r\nIf you do sublicense the Software, you must also:\r\n1. sublicense the Software under the License;\r\n2. sublicense the Software to any person or entity in any jurisdiction under the License;\r\n3. sublicense the Software to any person or entity in any country under the License;\r\n4. sublicense the Software to any person or entity in any language under the License;\r\n5. sublicense the Software to any person or entity in any format under the License;\r\n6. sublicense the Software to any person or entity in any medium under the License;\r\n7. sublicense the Software to any person or entity in any context under the License;\r\n8. sublicense the Software to any person or entity in any way under the License;\r\n9. sublicense the Software to any person or entity in any form under the License;\r\n10. sublicense the Software to any person or entity in any manner under the License;\r\n11. sublicense the Software to any person or entity in any means under the License;\r\n12. sublicense the Software to any person or entity in any case under the License;\r\n13. sublicense the Software to any person or entity in any instance under the License;\r\n14. sublicense the Software to any person or entity in any situation under the License;\r\n15. sublicense the Software to any person or entity in any circumstance under the License;\r\n16. sublicense the Software to any person or entity in any condition under the License;\r\n17. sublicense the Software to any person or entity in any respect under the License;\r\n18. sublicense the Software to any person or entity in any regard under the License;\r\n19. sublicense the Software to any person or entity in any way whatsoever under the License;\r\n20. sublicense the Software to any person or entity in any other way under the License;\r\n21. sublicense the Software to any person or entity in any other form under the License;\r\n22. sublicense the Software to any person or entity in any other manner under the License;\r\n23. sublicense the Software to any person or entity in any other means under the License;\r\n24. sublicense the Software to any person or entity in any other case under the License;\r\n25. sublicense the Software to any person or entity in any other instance under the License;\r\n26. sublicense the Software to any person or entity in any other situation under the License;\r\n27. sublicense the Software to any person or entity in any other circumstance under the License;\r\n28. sublicense the Software to any person or entity in any other condition under the License;\r\n29. sublicense the Software to any person or entity in any other respect under the License;\r\n30. sublicense the Software to any person or entity in any other regard under the License;\r\n31. sublicense the Software to any person or entity in any other way whatsoever under the License;\r\n\r\nIf you do sublicense the Software, you must also:\r\n1. sublicense the Software under the License;\r\n2. sublicense the Software to any person or entity in any jurisdiction under the License;\r\n3. sublicense the Software to any person or entity in any country under the License;\r\n4. sublicense the Software to any person or entity in any language under the License;\r\n5. sublicense the Software to any person or entity in any format under the License;\r\n6. sublicense the Software to any person or entity in any medium under the License;\r\n7. sublicense the Software to any person or entity in any context under the License;\r\n8. sublicense the Software to any person or entity in any way under the License;\r\n9. sublicense the Software to any person or entity in any form under the License;\r\n10. sublicense the Software to any person or entity in any manner under the License;\r\n11. sublicense the Software to any person or entity in any means under the License;\r\n12. sublicense the Software to any person or entity in any case under the License;\r\n13. sublicense the Software to any person or entity in any instance under the License;\r\n14. sublicense the Software to any person or entity in any situation under the License;\r\n15. sublicense the Software to any person or entity in any circumstance under the License;\r\n16. sublicense the Software to any person or entity in any condition under the License;\r\n17. sublicense the Software to any person or entity in any respect under the License;\r\n18. sublicense the Software to any person or entity in any regard under the License;\r\n19. sublicense the Software to any person or entity in any way whatsoever under the License;\r\n20. sublicense the Software to any person or entity in any other way under the License;\r\n21. sublicense the Software to any, sublicense the Software to any person or entity in any other form under the License;\r\n22. sublicense the Software to any person or entity in any other manner under the License;\r\n23. sublicense the Software to any person or entity in any other means under the License;\r\n24. sublicense the Software to any person or entity in any other case under the License;\r\n25. sublicense the Software to any person or entity in any other instance under the License;\r\n26. sublicense the Software to any person or entity in any other situation under the License;\r\n27. sublicense the Software to any person or entity in any other circumstance under the License;\r\n28. sublicense the Software to any person or entity in any other condition under the License;\r\n29. sublicense the Software to any person or entity in any other respect under the License;\r\n30. sublicense the Software to any person or entity in any other regard under the License;\r\n31. sublicense the Software to any person or entity in any other way whatsoever under the License;\r\n\r\nIf you do sublicense the Software, you must also:\r\n1. sublicense the Software under the License;\r\n2. sublicense the Software to any person or entity in any jurisdiction under the License;\r\n3. sublicense the Software to any person or entity in any country under the License;\r\n4. sublicense the Software to any person or entity in any language under the License;\r\n5. sublicense the Software to any person or entity in any format under the License;\r\n6. sublicense the Software to any person or entity in any medium under the License;\r\n7. sublicense the Software to any person or entity in any context under the License;\r\n8. sublicense the Software to any person or entity in any way under the License;\r\n9. sublicense the Software to any person or entity in any form under the License;\r\n10. sublicense the Software to any person or entity in any manner under the License;\r\n11. sublicense the Software to any person or entity in any means under the License;\r\n12. sublicense the Software to any person or entity in any case under the License;\r\n13. sublicense the Software to any person or entity in any instance under the License;\r\n14. sublicense the Software to any person or entity in any situation under the License;\r\n15. sublicense the Software to any person or entity in any circumstance under the License;\r\n16. sublicense the Software to any person or entity in any condition under the License;\r\n17. sublicense the Software to any person or entity in any respect under the License;\r\n18. sublicense the Software to any person or entity in Any regard under the License;\r\n19. sublicense the Software to any person or entity in any way whatsoever under the License;\r\n20. sublicense the Software to any person or entity in any other way under the License;\r\n21. sublicense the Software to any person or entity in any other form under the License;\r\n22. sublicense the Software to any person or entity in any other manner under the License;\r\n23. sublicense the Software to any person or entity in any other means under the License;\r\n24. sublicense the Software to any person or entity in any other case under the License;\r\n25. sublicense the Software to any person or entity in any other instance under the License;\r\n26. sublicense the Software to any person or entity in any other situation under the License;\r\n27. sublicense the Software to any person or entity in any other circumstance under the License;\r\n28. sublicense the Software to any person or entity in any other condition under the License;\r\n29. sublicense the Software to any person or entity in any other respect under the License;\r\n30. sublicense the Software to any person or entity in any other regard under the License;\r\n31. sublicense the Software to any person or entity in any other way whatsoever under the License;\r\n\r\nIf you do sublicense the Software, you must also:\r\n1. sublicense the Software under the License;\r\n2. sublicense the Software to any person or entity in any jurisdiction under the License;\r\n3. sublicense the Software to any person or entity in any country under the License;\r\n4. sublicense the Software to any person or entity in any language under the License;\r\n5. sublicense the Software to any person or entity in any format under the License;\r\n6. sublicense the Software to any person or entity in any medium under the License;\r\n7. sublicense the Software to any person or entity in any context under the License;\r\n8. sublicense the Software to any person or entity in any way under the License;\r\n9. sublicense the Software to any person or entity in any form under the License;\r\n10. sublicense the Software to any person or entity in any manner under the License;\r\n11. sublicense the Software to any person or entity in any means under the License;\r\n12. sublicense the Software to any person or entity in any case under the License;\r\n13. sublicense the Software to any person or entity in any instance under the License;\r\n14. sublicense the Software to any person or entity in any situation under the License;\r\n15. sublicense the Software to any person or entity in any circumstance under the License;\r\n16. sublicense the Software to any person or entity in any condition under the License;\r\n17. sublicense the Software to any person or entity in any respect under the License;\r\n18. sublicense the Software to any person or");
+                var licensePanel = new Panel(
+                    "[yellow]Copyright (c) 2024-2026 Mars Fei[/]\n\n" +
+                    "[grey]Licensed under the Apache License, Version 2.0 (the \"License\");\n" +
+                    "you may not use this software except in compliance with the License.\n" +
+                    "You may obtain a copy of the License at[/]\n\n" +
+                    "[blue]http://www.apache.org/licenses/LICENSE-2.0.txt[/]\n\n" +
+                    "[grey]Unless required by applicable law or agreed to in writing, software\n" +
+                    "distributed under the License is distributed on an \"AS IS\" BASIS,\n" +
+                    "WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n" +
+                    "See the License for the specific language governing permissions and\n" +
+                    "limitations under the License.[/]")
+                    .Header(" [cyan]Apache License 2.0[/] ")
+                    .Border(BoxBorder.Rounded)
+                    .BorderStyle(Style.Parse("blue"))
+                    .Expand();
+
+                AnsiConsole.Write(licensePanel);
             }
-            else if(command == "GC-Collect")
-            {
-                GC.Collect();
-            }
-            else if(command == "Get-HelpInformation")
-            {
-                Console.WriteLine(" Welcome to FeiSharp 8.0's help utility! If this is your first time using\r\nFeiSharp, You should view the GitHub website: https://github.com/Mars-FeiFei/FeiSharp-Terminal or the WinForm Edition https://github.com/Mars-FeiFei/FeiSharp/tree/WinFormDotnet8\r\n\r\nEach module also comes with a one-line summary of what it does; to list\r\nthe modules whose name or summary contain a givenglobal::System.String such as \"spam\",\r\nenter \"modules spam\".\r\n\r\nTo quit this help utility and return to the interpreter,\r\nenter \"exit\".");
-            }
-            else if(command == "Get-CreditsInformation")
-            {
-                Console.WriteLine("Thanks to Nagarro, CWI, Microsoft, OpenAI, thinkgeo.com, and a cast of thousands for supporting FeiSharp development.");
-            }
-            else if(command == "Get-License")
-            {
-                Console.WriteLine("Copyright (c) 2024-2025 Newsoft FeiSharp\r\n\r\nLicensed under the Apache License, Version 2.0 (the \"License\");\r\nyou may not use this software except in compliance with the License.\r\nYou may obtain a copy of the License at\r\n\r\n    http://www.apache.org/licenses/LICENSE-2.0\r\n\r\nUnless required by law or agreed to in writing, no person shall:\r\n1. sublicense, sell, rent, lease, or otherwise distribute the Software without the express written permission of the copyright holders;\r\n2. modify the Software without the express written permission of the copyright holders;\r\n3. sublicense the Software under any other license without the express written permission of the copyright holders;\r\n4. sublicense the Software to any person or entity without the express written permission of the copyright holders;\r\n5. sublicense the Software to any person or entity in any jurisdiction without the express written permission of the copyright holders;\r\n6. sublicense the Software to any person or entity in any country without the express written permission of the copyright holders;\r\n7. sublicense the Software to any person or entity in any language without the express written permission of the copyright holders;\r\n8. sublicense the Software to any person or entity in any format without the express written permission of the copyright holders;\r\n9. sublicense the Software to any person or entity in any medium without the express written permission of the copyright holders;\r\n10. sublicense the Software to any person or entity in any context without the express written permission of the copyright holders;\r\n11. sublicense the Software to any person or entity in any way without the express written permission of the copyright holders;\r\n12. sublicense the Software to any person or entity in any form without the express written permission of the copyright holders;\r\n13. sublicense the Software to any person or entity in any manner without the express written permission of the copyright holders;\r\n14. sublicense the Software to any person or entity in any means without the express written permission of the copyright holders;\r\n15. sublicense the Software to any person or entity in any case without the express written permission of the copyright holders;\r\n16. sublicense the Software to any person or entity in any instance without the express written permission of the copyright holders;\r\n17. sublicense the Software to any person or entity in any situation without the express written permission of the copyright holders;\r\n18. sublicense the Software to any person or entity in any circumstance without the express written permission of the copyright holders;\r\n19. sublicense the Software to any person or entity in any condition without the express written permission of the copyright holders;\r\n20. sublicense the Software to any person or entity in any respect without the express written permission of the copyright holders;\r\n21. sublicense the Software to any person or entity in any regard without the express written permission of the copyright holders;\r\n22. sublicense the Software to any person or entity in any way whatsoever without the express written permission of the copyright holders;\r\n23. sublicense the Software to any person or entity in any other way without the express written permission of the copyright holders;\r\n24. sublicense the Software to any person or entity in any other form without the express written permission of the copyright holders;\r\n25. sublicense the Software to any person or entity in any other manner without the express written permission of the copyright holders;\r\n26. sublicense the Software to any person or entity in any other means without the express written permission of the copyright holders;\r\n27. sublicense the Software to any person or entity in any other case without the express written permission of the copyright holders;\r\n28. sublicense the Software to any person or entity in any other instance without the express written permission of the copyright holders;\r\n29. sublicense the Software to any person or entity in any other situation without the express written permission of the copyright holders;\r\n30. sublicense the Software to any person or entity in any other circumstance without the express written permission of the copyright holders;\r\n31. sublicense the Software to any person or entity in any other condition without the express written permission of the copyright holders;\r\n32. sublicense the Software to any person or entity in any other respect without the express written permission of the copyright holders;\r\n33. sublicense the Software to any person or entity in any other regard without the express written permission of the copyright holders;\r\n34. sublicense the Software to any person or entity in any other way whatsoever without the express written permission of the copyright holders;\r\n\r\nIf you do sublicense the Software, you must also:\r\n1. sublicense the Software under the License;\r\n2. sublicense the Software to any person or entity in any jurisdiction under the License;\r\n3. sublicense the Software to any person or entity in any country under the License;\r\n4. sublicense the Software to any person or entity in any language under the License;\r\n5. sublicense the Software to any person or entity in any format under the License;\r\n6. sublicense the Software to any person or entity in any medium under the License;\r\n7. sublicense the Software to any person or entity in any context under the License;\r\n8. sublicense the Software to any person or entity in any way under the License;\r\n9. sublicense the Software to any person or entity in any form under the License;\r\n10. sublicense the Software to any person or entity in any manner under the License;\r\n11. sublicense the Software to any person or entity in any means under the License;\r\n12. sublicense the Software to any person or entity in any case under the License;\r\n13. sublicense the Software to any person or entity in any instance under the License;\r\n14. sublicense the Software to any person or entity in any situation under the License;\r\n15. sublicense the Software to any person or entity in any circumstance under the License;\r\n16. sublicense the Software to any person or entity in any condition under the License;\r\n17. sublicense the Software to any person or entity in any respect under the License;\r\n18. sublicense the Software to any person or entity in any regard under the License;\r\n19. sublicense the Software to any person or entity in any way whatsoever under the License;\r\n20. sublicense the Software to any person or entity in any other way under the License;\r\n21. sublicense the Software to any person or entity in any other form under the License;\r\n22. sublicense the Software to any person or entity in any other manner under the License;\r\n23. sublicense the Software to any person or entity in any other means under the License;\r\n24. sublicense the Software to any person or entity in any other case under the License;\r\n25. sublicense the Software to any person or entity in any other instance under the License;\r\n26. sublicense the Software to any person or entity in any other situation under the License;\r\n27. sublicense the Software to any person or entity in any other circumstance under the License;\r\n28. sublicense the Software to any person or entity in any other condition under the License;\r\n29. sublicense the Software to any person or entity in any other respect under the License;\r\n30. sublicense the Software to any person or entity in any other regard under the License;\r\n31. sublicense the Software to any person or entity in any other way whatsoever under the License;\r\n\r\nIf you do sublicense the Software, you must also:\r\n1. sublicense the Software under the License;\r\n2. sublicense the Software to any person or entity in any jurisdiction under the License;\r\n3. sublicense the Software to any person or entity in any country under the License;\r\n4. sublicense the Software to any person or entity in any language under the License;\r\n5. sublicense the Software to any person or entity in any format under the License;\r\n6. sublicense the Software to any person or entity in any medium under the License;\r\n7. sublicense the Software to any person or entity in any context under the License;\r\n8. sublicense the Software to any person or entity in any way under the License;\r\n9. sublicense the Software to any person or entity in any form under the License;\r\n10. sublicense the Software to any person or entity in any manner under the License;\r\n11. sublicense the Software to any person or entity in any means under the License;\r\n12. sublicense the Software to any person or entity in any case under the License;\r\n13. sublicense the Software to any person or entity in any instance under the License;\r\n14. sublicense the Software to any person or entity in any situation under the License;\r\n15. sublicense the Software to any person or entity in any circumstance under the License;\r\n16. sublicense the Software to any person or entity in any condition under the License;\r\n17. sublicense the Software to any person or entity in any respect under the License;\r\n18. sublicense the Software to any person or entity in any regard under the License;\r\n19. sublicense the Software to any person or entity in any way whatsoever under the License;\r\n20. sublicense the Software to any person or entity in any other way under the License;\r\n21. sublicense the Software to any person or entity in any other form under the License;\r\n22. sublicense the Software to any person or entity in any other manner under the License;\r\n23. sublicense the Software to any person or entity in any other means under the License;\r\n24. sublicense the Software to any person or entity in any other case under the License;\r\n25. sublicense the Software to any person or entity in any other instance under the License;\r\n26. sublicense the Software to any person or entity in any other situation under the License;\r\n27. sublicense the Software to any person or entity in any other circumstance under the License;\r\n28. sublicense the Software to any person or entity in any other condition under the License;\r\n29. sublicense the Software to any person or entity in any other respect under the License;\r\n30. sublicense the Software to any person or entity in any other regard under the License;\r\n31. sublicense the Software to any person or entity in any other way whatsoever under the License;\r\n\r\nIf you do sublicense the Software, you must also:\r\n1. sublicense the Software under the License;\r\n2. sublicense the Software to any person or entity in any jurisdiction under the License;\r\n3. sublicense the Software to any person or entity in any country under the License;\r\n4. sublicense the Software to any person or entity in any language under the License;\r\n5. sublicense the Software to any person or entity in any format under the License;\r\n6. sublicense the Software to any person or entity in any medium under the License;\r\n7. sublicense the Software to any person or entity in any context under the License;\r\n8. sublicense the Software to any person or entity in any way under the License;\r\n9. sublicense the Software to any person or entity in any form under the License;\r\n10. sublicense the Software to any person or entity in any manner under the License;\r\n11. sublicense the Software to any person or entity in any means under the License;\r\n12. sublicense the Software to any person or entity in any case under the License;\r\n13. sublicense the Software to any person or entity in any instance under the License;\r\n14. sublicense the Software to any person or entity in any situation under the License;\r\n15. sublicense the Software to any person or entity in any circumstance under the License;\r\n16. sublicense the Software to any person or entity in any condition under the License;\r\n17. sublicense the Software to any person or entity in any respect under the License;\r\n18. sublicense the Software to any person or entity in any regard under the License;\r\n19. sublicense the Software to any person or entity in any way whatsoever under the License;\r\n20. sublicense the Software to any person or entity in any other way under the License;\r\n21. sublicense the Software to any, sublicense the Software to any person or entity in any other form under the License;\r\n22. sublicense the Software to any person or entity in any other manner under the License;\r\n23. sublicense the Software to any person or entity in any other means under the License;\r\n24. sublicense the Software to any person or entity in any other case under the License;\r\n25. sublicense the Software to any person or entity in any other instance under the License;\r\n26. sublicense the Software to any person or entity in any other situation under the License;\r\n27. sublicense the Software to any person or entity in any other circumstance under the License;\r\n28. sublicense the Software to any person or entity in any other condition under the License;\r\n29. sublicense the Software to any person or entity in any other respect under the License;\r\n30. sublicense the Software to any person or entity in any other regard under the License;\r\n31. sublicense the Software to any person or entity in any other way whatsoever under the License;\r\n\r\nIf you do sublicense the Software, you must also:\r\n1. sublicense the Software under the License;\r\n2. sublicense the Software to any person or entity in any jurisdiction under the License;\r\n3. sublicense the Software to any person or entity in any country under the License;\r\n4. sublicense the Software to any person or entity in any language under the License;\r\n5. sublicense the Software to any person or entity in any format under the License;\r\n6. sublicense the Software to any person or entity in any medium under the License;\r\n7. sublicense the Software to any person or entity in any context under the License;\r\n8. sublicense the Software to any person or entity in any way under the License;\r\n9. sublicense the Software to any person or entity in any form under the License;\r\n10. sublicense the Software to any person or entity in any manner under the License;\r\n11. sublicense the Software to any person or entity in any means under the License;\r\n12. sublicense the Software to any person or entity in any case under the License;\r\n13. sublicense the Software to any person or entity in any instance under the License;\r\n14. sublicense the Software to any person or entity in any situation under the License;\r\n15. sublicense the Software to any person or entity in any circumstance under the License;\r\n16. sublicense the Software to any person or entity in any condition under the License;\r\n17. sublicense the Software to any person or entity in any respect under the License;\r\n18. sublicense the Software to any person or entity in Any regard under the License;\r\n19. sublicense the Software to any person or entity in any way whatsoever under the License;\r\n20. sublicense the Software to any person or entity in any other way under the License;\r\n21. sublicense the Software to any person or entity in any other form under the License;\r\n22. sublicense the Software to any person or entity in any other manner under the License;\r\n23. sublicense the Software to any person or entity in any other means under the License;\r\n24. sublicense the Software to any person or entity in any other case under the License;\r\n25. sublicense the Software to any person or entity in any other instance under the License;\r\n26. sublicense the Software to any person or entity in any other situation under the License;\r\n27. sublicense the Software to any person or entity in any other circumstance under the License;\r\n28. sublicense the Software to any person or entity in any other condition under the License;\r\n29. sublicense the Software to any person or entity in any other respect under the License;\r\n30. sublicense the Software to any person or entity in any other regard under the License;\r\n31. sublicense the Software to any person or entity in any other way whatsoever under the License;\r\n\r\nIf you do sublicense the Software, you must also:\r\n1. sublicense the Software under the License;\r\n2. sublicense the Software to any person or entity in any jurisdiction under the License;\r\n3. sublicense the Software to any person or entity in any country under the License;\r\n4. sublicense the Software to any person or entity in any language under the License;\r\n5. sublicense the Software to any person or entity in any format under the License;\r\n6. sublicense the Software to any person or entity in any medium under the License;\r\n7. sublicense the Software to any person or entity in any context under the License;\r\n8. sublicense the Software to any person or entity in any way under the License;\r\n9. sublicense the Software to any person or entity in any form under the License;\r\n10. sublicense the Software to any person or entity in any manner under the License;\r\n11. sublicense the Software to any person or entity in any means under the License;\r\n12. sublicense the Software to any person or entity in any case under the License;\r\n13. sublicense the Software to any person or entity in any instance under the License;\r\n14. sublicense the Software to any person or entity in any situation under the License;\r\n15. sublicense the Software to any person or entity in any circumstance under the License;\r\n16. sublicense the Software to any person or entity in any condition under the License;\r\n17. sublicense the Software to any person or entity in any respect under the License;\r\n18. sublicense the Software to any person or");
-            }
-            else if(command == "Get-Copyright")
-            {
-                Console.WriteLine("Copyright (c) 2024-2025 Newsoft FeiSharp\r\nAll Rights Reserved.");
-            }
-            else if(command == "Get-CurrentPath")
-            {
-                Console.WriteLine(Directory.GetCurrentDirectory());
-            }
-            else if(command == "Console-ReadKey")
-            {
-                Console.WriteLine("Please enter any key continue......");
-                Console.ReadKey();
-                Environment.Exit(0);
-            }
-            else if(command == "Console-ReadKeyOnly")
-            {
-                Console.WriteLine("Please enter any key continue......");
-                Console.ReadKey();
-                Console.WriteLine();
-            }
-            else if(command == "Console-SetDefaultColor")
+            else if (command == "resetColor")
             {
                 Console.ResetColor();
+                AnsiConsole.MarkupLine("[green]Colors reset to default[/]");
             }
-            else if(command == "Console-SetColor")
+            else if (command == "color")
             {
-                Console.ForegroundColor = (ConsoleColor)int.Parse(Console.ReadLine());
+                var color = AnsiConsole.Prompt(
+                    new SelectionPrompt<ConsoleColor>()
+                        .Title("[cyan]Select a color:[/]")
+                        .PageSize(10)
+                        .AddChoices(Enum.GetValues<ConsoleColor>()));
+
+                Console.ForegroundColor = color;
+                AnsiConsole.MarkupLine($"[green]Color changed to {color}[/]");
             }
-            else if(command == "Use-File")
+            else if (command.StartsWith("license "))
             {
-                Console.WriteLine(">>>:\"Input the path......\"");
-               global::System.String sourceCode = File.ReadAllText(Console.ReadLine());
-                Lexer lexer = new(sourceCode);
-                List<Token> tokens = [];
-                Token token;
-                do
-                {
-                    token = lexer.NextToken();
-                    tokens.Add(token);
-                } while (token.Type != TokenTypes.EndOfFile);
-                Parser parser = new(tokens);
-                parser.OutputEvent += (s, e) =>
-                {
-                    Console.WriteLine(e.Message);
-                };
-                try
-                {
-                    parser.ParseStatements();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("Parsing error: " + ex.Message);
-                }
-            }
-            else if(command == "MessageBox-Show")
-            {
-                global::System.String text = Console.ReadLine();
-                AnsiConsole.MarkupLine("[grey]asdasdasd[/]");
-                AnsiConsole.Prompt(
-                new TextPrompt<string>(text));
-            }
-            else if(command == "Console-ClearAll")
-            {
-                Console.Clear();
-            }
-            else if (command.Contains("license"))
-            {
-               global::System.String arg1 = command.Split(' ')[1];
+                global::System.String arg1 = command.Split(' ')[1];
                 if (arg1 == "--type")
                 {
-                    Console.WriteLine("Apache License");
+                    var typePanel = new Panel("[yellow]Apache License[/]")
+                        .Border(BoxBorder.Rounded)
+                        .BorderStyle(Style.Parse("green"));
+                    AnsiConsole.Write(typePanel);
                 }
                 else if (arg1 == "-v")
                 {
-                    Console.WriteLine("2.0");
+                    var versionPanel = new Panel("[yellow]2.0[/]")
+                        .Border(BoxBorder.Rounded)
+                        .BorderStyle(Style.Parse("green"));
+                    AnsiConsole.Write(versionPanel);
                 }
             }
             else if (command == "copyright")
             {
-                Console.WriteLine("Copyright (c) 2024-2025 Newsoft FeiSharp\r\nAll Rights Reserved.");
+                var copyrightPanel = new Panel(
+                    "[yellow]Copyright (c) 2024-2026, Mars Fei[/]\n" +
+                    "[red]All Rights Reserved.[/]")
+                    .Header(" [cyan]Copyright Information[/] ")
+                    .Border(BoxBorder.Rounded)
+                    .BorderStyle(Style.Parse("blue"));
+
+                AnsiConsole.Write(copyrightPanel);
+                var copyrightPanel2 = new Panel(
+                    "[yellow]Copyright (c) 2024-2026, Savannah Yang[/]\n" +
+                    "[red]All Rights Reserved.[/]")
+                    .Header(" [cyan]Copyright Information[/] ")
+                    .Border(BoxBorder.Rounded)
+                    .BorderStyle(Style.Parse("blue"));
+
+                AnsiConsole.Write(copyrightPanel2);
             }
             else if (command == "base")
             {
-                Console.WriteLine("FeiSharp is based from C# .Net 8.0\r\nBased Picture: FeiSharp Terminal 8.0 -> C# .Net 8.0 -> Microsoft IL -> BIN Code(010100......)");
+                var basePanel = new Panel(
+                    "[cyan]FeiSharp is based on:[/]\n\n" +
+                    "  [yellow]- C# .NET 8.0[/]\n" +
+                    "  [yellow]- Microsoft IL[/]\n" +
+                    "  [yellow]- Native Binary Code[/]")
+                    .Header(" [green]Technology Stack[/] ")
+                    .Border(BoxBorder.Rounded)
+                    .BorderStyle(Style.Parse("green"));
+
+                AnsiConsole.Write(basePanel);
             }
             else if (command == "credits")
             {
-                Console.WriteLine("Thanks to Microsoft, Google, Nagarro, Ben Bai, Yolanda Yang, Dean Liu, Savannah Yang, CWI, ChatGPT 4O Mini OpenAI.COM, thinkgeo.com, github.com, doubao.com, Git, Visual Studio and a cast of thousands for supporting FeiSharp development.");
+                var credits = new Panel(
+                    "[yellow]Special thanks to:[/]\n\n" +
+                    "  [green]- Ben Bai[/]\n" +
+                    "  [green]- Yolanda Yang[/]\n" +
+                    "  [green]- Dean Liu[/]\n" +
+                    "  [green]- Savannah Yang[/]\n" +
+                    "  [green]- thinkgeo.com[/]\n" +
+                    "  [green]- github.com[/]\n" +
+                    "  [green]- doubao.com[/]\n" +
+                    "  [green]- deepseek.com[/]\n" +
+                    "  [green]- Git[/]\n" +
+                    "  [green]- Visual Studio[/]\n" +
+                    "  [green]- Visual Studio Code[/]\n" +
+                    "  [green]- Trae AI[/]\n\n" +
+                    "[grey]...and a cast of thousands for supporting FeiSharp development.[/]")
+                    .Header(" [cyan]Credits[/] ")
+                    .Border(BoxBorder.Rounded)
+                    .BorderStyle(Style.Parse("blue"))
+                    .Expand();
+
+                AnsiConsole.Write(credits);
+
+                var specCredit = new Panel("[blue]Special thanks Savannah Yang for her important support").Header(" [cyan]Special Thanks[/] ")
+                    .Border(BoxBorder.Rounded)
+                    .BorderStyle(Style.Parse("blue"))
+                    .Expand();
+
+                AnsiConsole.Write(specCredit);
+
             }
-            else if (command == "help")
+            else if (command == "help" || command.StartsWith("help "))
             {
-                Console.WriteLine(" Welcome to FeiSharp 8.0's help utility! If this is your first time using\r\nFeiSharp, You should view the GitHub website: https://github.com/Mars-FeiFei/FeiSharp-Terminal or the WinForm Edition https://github.com/Mars-FeiFei/FeiSharp/tree/WinFormDotnet8\r\n\r\nEach module also comes with a one-line summary of what it does; to list\r\nthe modules whose name or summary contain a givenglobal::System.String such as \"spam\",\r\nenter \"modules spam\".\r\n\r\nTo quit this help utility and return to the interpreter,\r\nenter \"exit\".");
+                var parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var specificCommand = parts.Length > 1 ? parts[1] : null;
+
+                await HelpSystem.ShowInteractiveHelp(specificCommand);
             }
             else
             {
-                Process process = new Process();
-                ProcessStartInfo startInfo = new ProcessStartInfo
-                {
-                    FileName = "cmd.exe",
-                    Arguments = $"/c {command}",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    CreateNoWindow = true
-                };
-                process.StartInfo = startInfo;
-                process.Start();
-               global::System.String output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit();
-                if (string.IsNullOrEmpty(output))
-                {
-                    Process process1 = new Process();
-                    ProcessStartInfo startInfo1 = new ProcessStartInfo
+                // 执行代码时显示进度
+                await AnsiConsole.Status()
+                    .StartAsync("[yellow]Executing code...[/]", async ctx =>
                     {
-                        FileName = "powershell.exe",
-                        Arguments = $"/c {command}",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        CreateNoWindow = true
-                    };
-                    process1.StartInfo = startInfo1;
-                    process1.Start();
-                   global::System.String output1 = process1.StandardOutput.ReadToEnd();
-                    process1.WaitForExit();
-                    Console.WriteLine(output1);
-                }
-                Console.WriteLine(output);
+                        _parser = RunFeiSharpCodeWithProProcesser(command, _parser);
+                    });
             }
         }
     }
+
     public static bool IsConnectedToInternet()
     {
         try
         {
             using (Ping ping = new Ping())
             {
-                PingReply reply = ping.Send("8.8.8.8", 1000); // Ping Google DNS
+                PingReply reply = ping.Send("8.8.8.8", 1000);
                 return reply.Status == IPStatus.Success;
             }
         }
@@ -521,14 +1153,154 @@ internal class Program
             return false;
         }
     }
+
+    public static string ProProcesser(string scode)
+    {
+        var lines = scode.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries); ;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string? item = lines[i].Trim();
+            if (item.StartsWith('i'))
+            {
+                var line = item[1..];
+                if (line.StartsWith("mport"))
+                {
+                    try
+                    {
+                        var vFilePath = line.Split('"')[1].Split('"')[0];
+                        if (vFilePath.StartsWith("FeiSharp"))
+                        {
+                            continue;
+                        }
+                        var tFilePath = MapPath(vFilePath, _applicationPath);
+                        if (File.Exists(tFilePath))
+                        {
+                        }
+                        else
+                        {
+                            AnsiConsole.MarkupLine($"[yellow]Warning (at line {i + 1}):[/] The path of import statement isn't correct: [red]{vFilePath}[/]");
+                            continue;
+                        }
+                        string content = File.ReadAllText(tFilePath);
+                        content = ProProcesser(content);
+                        scode = string.Concat(content, scode.Replace(item, ""));
+                    }
+                    catch
+                    {
+                        AnsiConsole.MarkupLine($"[yellow]Warning (at line {i + 1}):[/] [red]The format of import statement isn't correct[/]");
+                    }
+                }
+            }
+        }
+        return scode;
+    }
+
+    public static Parser RunFeiSharpCodeWithProProcesser(string scode, Parser _parser = null)
+    {
+        ChangeDynamicTitle(EXEC);
+        // 设置执行状态
+        ExecutionCancellation.SetExecuting(true);
+
+        try
+        {
+            // 检查是否被取消
+            if (ExecutionCancellation.IsCancellationRequested)
+            {
+                AnsiConsole.MarkupLine("[yellow]Execution cancelled[/]");
+                return _parser;
+            }
+
+            global::System.String sourceCode = scode;
+            sourceCode = ProProcesser(sourceCode);
+
+            // 检查是否被取消
+            if (ExecutionCancellation.IsCancellationRequested)
+            {
+                AnsiConsole.MarkupLine("[yellow]Execution cancelled during preprocessing[/]");
+                return _parser;
+            }
+
+            Lexer lexer = new(sourceCode);
+            List<Token> tokens = [];
+            Token token;
+
+            // 在词法分析过程中检查取消
+            do
+            {
+                if (ExecutionCancellation.IsCancellationRequested)
+                {
+                    AnsiConsole.MarkupLine("[yellow]Execution cancelled during lexing[/]");
+                    return _parser;
+                }
+
+                token = lexer.NextToken();
+                tokens.Add(token);
+            } while (token.Type != TokenTypes.EndOfFile);
+
+            if (CodeError.isError)
+            {
+                return _parser;
+            }
+
+            Parser parser = null;
+            try
+            {
+                parser = new(tokens);
+                if (_parser != null)
+                {
+                    parser._variables = _parser._variables;
+                    parser._functions = _parser?._functions ?? new Dictionary<string, FunctionInfo>();
+                }
+
+                // 设置取消检查委托
+                parser.ShouldCancel = () => ExecutionCancellation.IsCancellationRequested;
+                var rule1 = new Rule("[yellow]Code Output[/]")
+                {
+                    Style = Style.Parse("green"),
+                    Justification = Justify.Center
+                };
+                AnsiConsole.Write(rule1);
+                // 执行解析
+                parser.ParseStatements();
+
+                return parser;
+            }
+            catch (OperationCanceledException)
+            {
+                AnsiConsole.MarkupLine("[yellow]Execution cancelled[/]");
+                return _parser;
+            }
+            catch (FeiSharpTerminal3._1.ExceptionThrow.Exception ex)
+            {
+                if (!ExecutionCancellation.IsCancellationRequested)
+                {
+                    var errorPanel = new Panel($"[red]Runtime Error: {ex.Message}[/]")
+                        .Border(BoxBorder.Rounded)
+                        .BorderStyle(Style.Parse("red"));
+                    AnsiConsole.Write(errorPanel);
+                }
+                return parser;
+            }
+        }
+        finally
+        {
+            // 无论成功还是取消，都重置执行状态
+            ExecutionCancellation.SetExecuting(false);
+            ChangeDynamicTitle(IN_CMD);
+        }
+    }
 }
+
 public class CustomConsole
 {
     [global::System.Runtime.InteropServices.DllImport("kernel32.dll")]
     private static extern global::System.Boolean SetConsoleTextAttribute(global::System.IntPtr WIN_X32_INTEGER32_PTR_H_CONSOLE_OUTPUT_ID_FOR_32BYTES, global::System.UInt16 WIN_X32_UINT16_ATTRIBUTES_FOR_16BYTES);
+
     public const global::System.Int32 WIN_X64_INT32_STD_OUTPUT_HANDLE_ID_FOR_32BYTES = -11;
+
     [global::System.Runtime.InteropServices.DllImport("kernel32.dll")]
     private static extern global::System.IntPtr GetStdHandle(global::System.Int32 WIN_X64_INTEGER32_N_STD_HANDLE_FOR_32BYTES);
+
     public static void WRITE_GREY_WITHOUT_LINE(global::System.String STR_UCODE_12_TEXT, global::System.UInt16 WIN_X64_UINT16_PTR_FOR_16BYTES)
     {
         global::System.IntPtr consoleHandle = GetStdHandle(WIN_X64_INT32_STD_OUTPUT_HANDLE_ID_FOR_32BYTES);
@@ -539,4 +1311,3 @@ public class CustomConsole
         global::FeiSharp8._5RuntimeSdk.CustomConsole.SetConsoleTextAttribute(consoleHandle, defaultColor);
     }
 }
-

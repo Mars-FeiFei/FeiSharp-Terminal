@@ -17,13 +17,13 @@ namespace FeiSharpStudio
     }
     public class ValueExpr : Expr
     {
-        public object Value { get; }
+        public object Value { get; set; }
         public ValueExpr(object value) { Value = value; }
     }
 
     public class StringExpr : Expr
     {
-        public string Value { get; }
+        public string Value { get; set; }
 
         public StringExpr(string value) { Value = value; }
     }
