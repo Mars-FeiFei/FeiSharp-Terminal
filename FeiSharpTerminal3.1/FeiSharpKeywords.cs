@@ -94,6 +94,7 @@ namespace FeiSharpTerminal3._1
                 ["oldmappath"] = new Token(TokenTypes.Keyword, "oldmappath"),
                 ["appquit"] = new Token(TokenTypes.Keyword, "appquit"),
                 ["in"] = new Token(TokenTypes.Keyword, "in"),
+                ["pause"] = new Token(TokenTypes.Keyword, "pause"),
             };
     }
 }

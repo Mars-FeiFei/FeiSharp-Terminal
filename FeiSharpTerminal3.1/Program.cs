@@ -5,11 +5,9 @@ using Spectre.Console;
 using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 namespace FeiSharp8._5RuntimeSdk;
 public class Program
 {
@@ -129,7 +127,10 @@ public class Program
         {
         }
     }
-
+    static string? platform = "win-x64";
+    static bool? isCleanBuildDirectory = false;
+    static bool? isTrimmedByDotnet = false;
+    static bool? isOnlyCopyExecutable = false;
     static string? ResolveFeiSharpSourcePath(string inputPath)
     {
         if (string.IsNullOrWhiteSpace(inputPath))
@@ -148,13 +149,18 @@ public class Program
             return fullInputPath;
         }
 
-        var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(File.ReadAllText(fullInputPath));
-        if (dict == null || !dict.TryGetValue("project_main_file", out object? mainFileValue))
+        FeiSharpProjectFile? projectFile = JsonSerializer.Deserialize(
+            File.ReadAllText(fullInputPath),
+            FeiSharpJsonSerializerContext.Default.FeiSharpProjectFile);
+        if (string.IsNullOrWhiteSpace(projectFile?.ProjectMainFile))
         {
             return null;
         }
-
-        string? mainFile = mainFileValue?.ToString();
+        platform = !string.IsNullOrEmpty(projectFile.TargetPlatform) ? projectFile.TargetPlatform : platform;
+        isCleanBuildDirectory = projectFile.IsCleanBuildDirectory ?? false;
+        isTrimmedByDotnet = projectFile.IsTrimmedByDotnet ?? false;
+        isOnlyCopyExecutable = projectFile.IsOnlyCopyExecutable ?? false;
+        string? mainFile = projectFile.ProjectMainFile;
         if (string.IsNullOrWhiteSpace(mainFile))
         {
             return null;
@@ -188,10 +194,12 @@ public class Program
             {
                 try
                 {
-                    var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(File.ReadAllText(fullInputPath));
-                    if (dict != null && dict.TryGetValue("project_name", out object? projectNameValue))
+                    FeiSharpProjectFile? projectFile = JsonSerializer.Deserialize(
+                        File.ReadAllText(fullInputPath),
+                        FeiSharpJsonSerializerContext.Default.FeiSharpProjectFile);
+                    if (!string.IsNullOrWhiteSpace(projectFile?.ProjectName))
                     {
-                        string? projectName = projectNameValue?.ToString();
+                        string? projectName = projectFile.ProjectName;
                         if (!string.IsNullOrWhiteSpace(projectName))
                         {
                             return string.Concat(projectName.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)).Trim();
@@ -249,19 +257,14 @@ public class Program
 
     static string GetRuntimeAssemblyPath()
     {
-        string assemblyPath = typeof(Program).Assembly.Location;
-        if (string.Equals(Path.GetExtension(assemblyPath), ".dll", StringComparison.OrdinalIgnoreCase) && File.Exists(assemblyPath))
+        string assemblyName = typeof(Program).Assembly.GetName().Name ?? "feisharp";
+        string bundledDllPath = Path.Combine(AppContext.BaseDirectory, assemblyName + ".dll");
+        if (File.Exists(bundledDllPath))
         {
-            return assemblyPath;
+            return bundledDllPath;
         }
 
-        string dllPath = Path.ChangeExtension(assemblyPath, ".dll");
-        if (File.Exists(dllPath))
-        {
-            return dllPath;
-        }
-
-        throw new FileNotFoundException("Unable to locate the FeiSharp runtime assembly.", assemblyPath);
+        throw new FileNotFoundException("Unable to locate the FeiSharp runtime assembly.", bundledDllPath);
     }
 
     static string GetWindowsRuntimeIdentifier()
@@ -343,7 +346,6 @@ public class Program
     <Nullable>enable</Nullable>
     <AssemblyName>{{escapedAssemblyName}}</AssemblyName>
     <UseAppHost>true</UseAppHost>
-    <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
     <RuntimeIdentifier>{{runtimeIdentifier}}</RuntimeIdentifier>
     <DebugType>none</DebugType>
@@ -371,79 +373,60 @@ FeiSharp8._5RuntimeSdk.Program._applicationPath = AppContext.BaseDirectory;
 var sourceCode = Encoding.UTF8.GetString(Convert.FromBase64String("{{base64Source}}"));
 FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
 """);
-
+            if ((bool)isCleanBuildDirectory && Directory.Exists(Path.GetDirectoryName(outputExePath)))
+            {
+                foreach (var item in Directory.GetFiles(Path.GetDirectoryName(outputExePath)))
+                {
+                    File.Delete(item);
+                }
+            }
+            string argument = $"publish -c Release -r {platform} -p:PublishAot=true -p:OptimizationPreference=Size -p:DebugType=none -p:InvariantGlobalization=true -o " + tempBuildDirectory;
+            if ((bool)isTrimmedByDotnet)
+            {
+                AnsiConsole.MarkupLine("[yellow]Warning: Use trimmed_by_dotnet must ensure the target machine has installed .NET 8.0[/]");
+                argument = $"build -c Release -r {platform} -p:PublishSingleFile=true -p:OutputPath={tempBuildDirectory}";
+            }
             var buildProcess = new Process();
             buildProcess.StartInfo = new ProcessStartInfo
             {
                 FileName = "dotnet",
+                Arguments = argument,
                 WorkingDirectory = tempRoot,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
-            buildProcess.StartInfo.ArgumentList.Add("build");
-            buildProcess.StartInfo.ArgumentList.Add(tempProjectPath);
-            buildProcess.StartInfo.ArgumentList.Add("-c");
-            buildProcess.StartInfo.ArgumentList.Add("Release");
-            buildProcess.StartInfo.ArgumentList.Add("-o");
-            buildProcess.StartInfo.ArgumentList.Add(tempBuildDirectory);
 
             buildProcess.Start();
             string buildStandardOutput = buildProcess.StandardOutput.ReadToEnd();
             string buildStandardError = buildProcess.StandardError.ReadToEnd();
             buildProcess.WaitForExit();
-
             if (buildProcess.ExitCode != 0)
             {
                 errorMessage = string.IsNullOrWhiteSpace(buildStandardError) ? buildStandardOutput : buildStandardError;
                 return false;
             }
-
-            string builtDllPath = Path.Combine(tempBuildDirectory, assemblyName + ".dll");
-            if (!File.Exists(builtDllPath))
-            {
-                errorMessage = $"Build succeeded, but the generated dll was not found at {builtDllPath}.";
-                return false;
-            }
-
-            var publishProcess = new Process();
-            publishProcess.StartInfo = new ProcessStartInfo
-            {
-                FileName = "dotnet",
-                WorkingDirectory = tempRoot,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            publishProcess.StartInfo.ArgumentList.Add("publish");
-            publishProcess.StartInfo.ArgumentList.Add(tempProjectPath);
-            publishProcess.StartInfo.ArgumentList.Add("-c");
-            publishProcess.StartInfo.ArgumentList.Add("Release");
-            publishProcess.StartInfo.ArgumentList.Add("-o");
-            publishProcess.StartInfo.ArgumentList.Add(tempPublishDirectory);
-
-            publishProcess.Start();
-            string publishStandardOutput = publishProcess.StandardOutput.ReadToEnd();
-            string publishStandardError = publishProcess.StandardError.ReadToEnd();
-            publishProcess.WaitForExit();
-
-            if (publishProcess.ExitCode != 0)
-            {
-                errorMessage = string.IsNullOrWhiteSpace(publishStandardError) ? publishStandardOutput : publishStandardError;
-                return false;
-            }
-
-            string publishedExePath = Path.Combine(tempPublishDirectory, assemblyName + ".exe");
+            string publishedExePath = Path.Combine(tempBuildDirectory, assemblyName + ".exe");
             if (!File.Exists(publishedExePath))
             {
                 errorMessage = $"Build succeeded, but the generated exe was not found at {publishedExePath}.";
                 return false;
             }
-
-            File.Copy(publishedExePath, outputExePath, true);
-            File.Copy(builtDllPath, Path.ChangeExtension(outputExePath, ".dll"), true);
+            if ((bool)isOnlyCopyExecutable && (bool)isTrimmedByDotnet)
+            {
+                errorMessage = $"trimmed_by_dotnet and only_copy_executable cannot both be true";
+                return false;
+            }
+            if ((bool)isOnlyCopyExecutable)
+            {
+                File.Copy(publishedExePath, outputExePath, true);
+                return true;
+            }
+            foreach (string file in Directory.GetFiles(tempBuildDirectory))
+            {
+                File.Copy(file, Path.Combine(Path.GetDirectoryName(outputExePath), Path.GetFileName(file)), true);
+            }
             return true;
         }
         catch (Exception ex)
@@ -483,7 +466,7 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
 
         // 漂亮的启动标题
         AnsiConsole.Write(
-            new FigletText("FeiSharp SDK 9.0")
+            new FigletText("FEI# Target SDK 9.0")
                 .Color(Color.Cyan1));
 
         var rule = new Rule($"[yellow]Version 9.0[/]")
@@ -506,18 +489,18 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
         //end head
         #endregion
 
-        if (args.Length > 0 && string.Equals(args[0], "--build", StringComparison.OrdinalIgnoreCase))
+        if (args.Length > 0 && string.Equals(args[0], "build", StringComparison.OrdinalIgnoreCase))
         {
             if (args.Length < 2)
             {
-                var usagePanel = new Panel("[red]Usage: feisharp --build <source.fsc|project.feiproj> [output.exe][/]")
+                var usagePanel = new Panel("[red]Usage: feisharp build <source.fsc|project.feiproj> [output.exe][/]")
                     .Border(BoxBorder.Rounded)
                     .BorderStyle(Style.Parse("red"));
                 AnsiConsole.Write(usagePanel);
                 return;
             }
 
-            string? outputArg = args.Length > 2 ? args[2] : null;
+            string? outputArg = "out\\feisharp-sdk-9.0-release\\" + (args.Length > 2 ? args[2] : null);
             await AnsiConsole.Status()
                 .StartAsync("[yellow]Building executable...[/]", async ctx =>
                 {
@@ -622,7 +605,8 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
             {
                 AnsiConsole.Markup("[cyan]Source File: [/]");
                 string path = Console.ReadLine();
-                string exePath = Path.ChangeExtension(Assembly.GetExecutingAssembly().Location, ".exe").Replace("feisharp.exe", "UiG.exe").Replace("FeiSharpTerminal3.1\\bin\\Debug\\net8.0-windows", "UiG\\bin\\Debug\\net8.0-windows");
+                string currentProcessPath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "feisharp.exe");
+                string exePath = Path.ChangeExtension(currentProcessPath, ".exe").Replace("feisharp.exe", "UiG.exe").Replace("FeiSharpTerminal3.1\\bin\\Debug\\net8.0-windows", "UiG\\bin\\Debug\\net8.0-windows");
 
                 var statusPanel = new Panel($"[yellow]Launching UI with file:[/] [green]{path}[/]")
                     .Border(BoxBorder.Rounded)
@@ -630,6 +614,60 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
                 AnsiConsole.Write(statusPanel);
 
                 Process.Start(exePath, path);
+            }
+            else if (command.StartsWith("open"))
+            {
+                string path = "";
+                if (command == "open")
+                {
+                    path = Directory.GetCurrentDirectory();
+                }
+                else
+                {
+                    path = command.Split(' ')[1];
+                }
+                Task.Factory.StartNew(() =>
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "code.exe",
+                        Arguments = $"--log=off \"{path}\"",
+                        UseShellExecute = true,      // 使用系统 shell 打开
+                        CreateNoWindow = true       // 显示窗口（默认就是 false）
+                    });
+                });
+                if (Console.CursorTop > 0)
+                {
+                    int currentLeft = Console.CursorLeft;
+                    int currentTop = Console.CursorTop;
+                    Console.SetCursorPosition(0, currentTop - 1);
+                }
+                Thread.Sleep(500);
+
+            }
+            else if (command.StartsWith("explorer"))
+            {
+                string path = "";
+                if (command == "explorer")
+                {
+                    path = Directory.GetCurrentDirectory();
+                }
+                else
+                {
+                    path = command.Split(' ')[1];
+                }
+                Task.Factory.StartNew(() =>
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "explorer.exe",
+                        Arguments = $"\"{path}\"",
+                        UseShellExecute = true,      // 使用系统 shell 打开
+                        CreateNoWindow = true       // 显示窗口（默认就是 false）
+                    });
+                });
+                Thread.Sleep(500);
+
             }
             else if (command == "run")
             {
@@ -675,16 +713,41 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
             else if (command == "build" || command.StartsWith("build "))
             {
                 string sourceInput = command.Length > 5 ? command[5..].Trim() : string.Empty;
+                List<string> feiprojs = [];
                 if (string.IsNullOrWhiteSpace(sourceInput))
                 {
-                    AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Input the source file or project path...[/]");
-                    AnsiConsole.Markup("[cyan]Source Path: [/]");
-                    sourceInput = Console.ReadLine() ?? string.Empty;
+                    foreach (var item in Directory.GetFiles(Directory.GetCurrentDirectory()))
+                    {
+                        if (item.EndsWith(".feiproj"))
+                        {
+                            feiprojs.Add(item);
+                        }
+                    }
+                    if (feiprojs.Count == 1)
+                    {
+                        sourceInput = feiprojs[0];
+                    }
+                    else
+                    {
+                        feiprojs.Add("Others");
+                        sourceInput = AnsiConsole.Prompt(
+    new SelectionPrompt<string>()
+        .Title("What source file would you like?")
+        .AddChoices(feiprojs.ToArray())
+);
+                    }
+                    if (sourceInput == "Others")
+                    {
+                        AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Input the source file or project path...[/]");
+                        AnsiConsole.Markup("[cyan]Source Path: [/]");
+                        sourceInput = Console.ReadLine() ?? string.Empty;
+                    }
                 }
-                string? outputInput = "bin\\obj\\feisharp.sdk 9.0\\" + Path.GetFileNameWithoutExtension(sourceInput) + ".exe";
+                string? outputInput = "out\\feisharp-sdk-9.0-release\\" + Path.GetFileNameWithoutExtension(sourceInput) + ".exe";
                 await AnsiConsole.Status()
                     .StartAsync("[yellow]Building executable...[/]", async ctx =>
                     {
+                        ChangeDynamicTitle("Generate Native Code");
                         if (TryBuildExecutable(sourceInput, outputInput, out string builtExePath, out string buildError))
                         {
                             var successPanel = new Panel($"[green]✓ Build completed:[/] [yellow]{builtExePath}[/]")
@@ -699,7 +762,7 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
                                 .BorderStyle(Style.Parse("red"));
                             AnsiConsole.Write(errorPanel);
                         }
-
+                        ChangeDynamicTitle(IN_CMD);
                         await Task.CompletedTask;
                     });
             }
@@ -866,7 +929,7 @@ Thumbs.db
                             var errorPanel = new Panel("[red]✗ The type isn't correct/]")
                                     .Border(BoxBorder.Rounded)
                                     .BorderStyle(Style.Parse("red"));
-                                    AnsiConsole.Write(errorPanel);
+                            AnsiConsole.Write(errorPanel);
                             break;
                     }
                 }

@@ -1,9 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.IO;
 
+[RequiresDynamicCode("FeiSharp resolves CLR types dynamically. Native AOT requires any invoked types and members to be preserved explicitly.")]
+[RequiresUnreferencedCode("FeiSharp resolves CLR types dynamically from arbitrary assemblies. Trimming cannot statically analyze these accesses.")]
 public static class TypeLoader
 {
     /// <summary>
@@ -11,12 +14,12 @@ public static class TypeLoader
     /// </summary>
     /// <param name="typeName">类型全名（如 "System.Diagnostics.Process"）</param>
     /// <returns>找到的Type对象，如果找不到则返回null</returns>
-    public static Type LoadType(string typeName)
+    public static Type? LoadType(string typeName)
     {
         if (string.IsNullOrWhiteSpace(typeName))
             return null;
 
-        Type result = null;
+        Type? result = null;
 
         // 策略1: 直接使用 Type.GetType (最简单快速)
         result = TryGetTypeSimple(typeName);
@@ -43,24 +46,24 @@ public static class TypeLoader
     /// <summary>
     /// 万能类型加载器（带缓存，推荐使用）
     /// </summary>
-    private static Dictionary<string, Type> _typeCache = new Dictionary<string, Type>();
+    private static readonly Dictionary<string, Type?> _typeCache = new Dictionary<string, Type?>();
 
-    public static Type LoadTypeCached(string typeName)
+    public static Type? LoadTypeCached(string typeName)
     {
         if (string.IsNullOrWhiteSpace(typeName))
             return null;
 
-        if (_typeCache.TryGetValue(typeName, out Type cachedType))
+        if (_typeCache.TryGetValue(typeName, out Type? cachedType))
             return cachedType;
 
-        Type type = LoadType(typeName);
+        Type? type = LoadType(typeName);
         _typeCache[typeName] = type;
         return type;
     }
 
     #region 加载策略实现
 
-    private static Type TryGetTypeSimple(string typeName)
+    private static Type? TryGetTypeSimple(string typeName)
     {
         try
         {
@@ -79,7 +82,7 @@ public static class TypeLoader
         return null;
     }
 
-    private static Type TryGetTypeFromLoadedAssemblies(string typeName)
+    private static Type? TryGetTypeFromLoadedAssemblies(string typeName)
     {
         try
         {
@@ -108,7 +111,7 @@ public static class TypeLoader
         return null;
     }
 
-    private static Type TryGetTypeFromCommonAssemblies(string typeName)
+    private static Type? TryGetTypeFromCommonAssemblies(string typeName)
     {
         // 常见的基础程序集列表
         string[] commonAssemblies = new[]
@@ -162,7 +165,7 @@ public static class TypeLoader
         return null;
     }
 
-    private static Type TryGetTypeFromAllAssembliesInDirectory(string typeName)
+    private static Type? TryGetTypeFromAllAssembliesInDirectory(string typeName)
     {
         try
         {
@@ -187,7 +190,7 @@ public static class TypeLoader
         return null;
     }
 
-    private static Type TryGetTypeFromAllReferencedAssemblies(string typeName, HashSet<string> visitedAssemblies = null)
+    private static Type? TryGetTypeFromAllReferencedAssemblies(string typeName, HashSet<string>? visitedAssemblies = null)
     {
         try
         {

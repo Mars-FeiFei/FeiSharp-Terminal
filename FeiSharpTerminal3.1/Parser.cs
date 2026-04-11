@@ -3,6 +3,7 @@ using FeiSharpStudio.ClassInstance;
 using FeiSharpStudio.UUID;
 using FeiSharpTerminal3._1;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -352,6 +353,10 @@ namespace FeiSharpStudio
                         ParseAppQuit();
                         
                     }
+                    else if (MatchKeyword("pause"))
+                    {
+                        ParsePause();
+                    }
                     else if (Peek().Type == TokenTypes.Identifier && Peek().Value == TokenKeywords.classInvoke)
                     {
                         Advance();
@@ -401,6 +406,14 @@ namespace FeiSharpStudio
         private List<string> _builtInTypesList = [
             "integer", "string", "bool", "extendObject", "object", "char", "objectReturned", "symbol", "double", "float", "error"
         ];
+        private void ParsePause()
+        {
+            if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
+            Console.WriteLine("Program pause...(Press any key to exit)");
+            Console.ReadKey(true);
+            Advance();
+            Advance();
+        }
         private void ParseAppQuit()
         {
             if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
@@ -410,6 +423,8 @@ namespace FeiSharpStudio
             Advance();
             Advance();
         }
+        [RequiresDynamicCode("FeiSharp supports script-driven reflection over CLR static members.")]
+        [RequiresUnreferencedCode("FeiSharp supports script-driven reflection over CLR static members.")]
         private object ParseClassInvoke()
         {
             if (!MatchPunctuation(":")) throw new Exception(_tokens, _current, "Expected ':'", "FS2003");
@@ -469,6 +484,8 @@ namespace FeiSharpStudio
             Advance();
             return k;
         }
+        [RequiresDynamicCode("FeiSharp supports script-driven reflection over CLR instance members.")]
+        [RequiresUnreferencedCode("FeiSharp supports script-driven reflection over CLR instance members.")]
         private object ParseObjectInvoke()
         {
             if (!MatchPunctuation(":")) throw new Exception(_tokens, _current, "Expected ':'", "FS2003");
@@ -2193,6 +2210,8 @@ namespace FeiSharpStudio
             Advance();
             _variables.NewAdd(((VarExpr)expr).Name, InitValue(((VarExpr)expr2).Name));
         }
+        [RequiresDynamicCode("FeiSharp creates CLR instances from runtime type names.")]
+        [RequiresUnreferencedCode("FeiSharp creates CLR instances from runtime type names.")]
         private object InitValue(string type)
         {
             Type t = TypeLoader.LoadType("System." + type);
@@ -2857,9 +2876,13 @@ namespace FeiSharpStudio
             public COORD dwMaximumWindowSize;
         }
     }
+[RequiresDynamicCode("FeiSharp constructs CLR instances from runtime-discovered constructors.")]
+[RequiresUnreferencedCode("FeiSharp constructs CLR instances from runtime-discovered constructors.")]
 public static class SmartActivator
     {
-        public static object CreateInstance(Type type, object[] args)
+        public static object CreateInstance(
+            Type type,
+            object[] args)
         {
             if (type == null) throw new ArgumentNullException(nameof(type));
 

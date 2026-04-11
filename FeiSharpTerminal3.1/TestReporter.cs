@@ -1,4 +1,5 @@
 ﻿using Spectre.Console;
+using FeiSharp8._5RuntimeSdk;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -697,14 +698,9 @@ namespace FeiSharpTerminal3._1.Tests
 
         private static void GenerateJsonReport(TestReportData data, string filepath)
         {
-            var options = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            };
-
-            var json = JsonSerializer.Serialize(data, options);
+            var json = JsonSerializer.Serialize(
+                data,
+                FeiSharpJsonSerializerContext.Default.TestReportData);
             File.WriteAllText(filepath, json);
         }
 
