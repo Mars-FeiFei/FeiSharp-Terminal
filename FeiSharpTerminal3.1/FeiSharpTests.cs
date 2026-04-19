@@ -19,6 +19,13 @@ public static class FeiSharpTests
     }
     static (string Name, Action Test)[] tests = new (string Name, Action Test)[]
     {
+        ("Character Literal Lexing Test", () => {
+            AssertTokenSequence("'a'", new[]
+            {
+                new Token(TokenTypes.Character, "a"),
+                new Token(TokenTypes.EndOfFile, "")
+            });
+        }),
         ("'it' Keyword And Addition Test", () => {
             RunFeiSharpCode(@"
 var x = 1 + 2;
@@ -41,6 +48,7 @@ oldpow(""x"", 2, 3);",
     public static void RunAllTests()
     {
         Start:
+        ResetTestRunState();
         AnsiConsole.Write(
             new FigletText("FeiSharp Tests")
                 .Color(Color.Cyan1));
@@ -56,47 +64,49 @@ oldpow(""x"", 2, 3);",
             .AddColumn(new TableColumn("[yellow]Test Name[/]"))
             .AddColumn(new TableColumn("[yellow]Status[/]").Centered())
             .AddColumn(new TableColumn("[yellow]Duration[/]").Centered());
-        var stopwatch = Stopwatch.StartNew();
+        var totalStopwatch = Stopwatch.StartNew();
         for (int i = 0; i < tests.Length; i++)
         {
             var test = tests[i];
+            var testStopwatch = Stopwatch.StartNew();
             try
             {
                 test.Test();
-                stopwatch.Stop();
+                testStopwatch.Stop();
                 _passedTests++;
                 table.AddRow(
                     (i + 1).ToString(),
                     test.Name.EscapeMarkup(),
                     "[green]PASS[/]",
-                    $"{stopwatch.ElapsedMilliseconds}ms");
+                    $"{testStopwatch.ElapsedMilliseconds}ms");
                 _results.Add(new TestResult
                 {
                     TestNumber = i + 1,
                     TestName = test.Name,
                     Passed = true,
-                    Duration = stopwatch.Elapsed
+                    Duration = testStopwatch.Elapsed
                 });
             }
             catch (Exception ex)
             {
-                stopwatch.Stop();
+                testStopwatch.Stop();
                 _failedTests++;
                 table.AddRow(
                     (i + 1).ToString(),
                     test.Name.EscapeMarkup(),
                     "[red]FAIL[/]",
-                    $"{stopwatch.ElapsedMilliseconds}ms");
+                    $"{testStopwatch.ElapsedMilliseconds}ms");
                 _results.Add(new TestResult
                 {
                     TestNumber = i + 1,
                     TestName = test.Name,
                     Passed = false,
                     ErrorMessage = ex.Message,
-                    Duration = stopwatch.Elapsed
+                    Duration = testStopwatch.Elapsed
                 });
             }
         }
+        totalStopwatch.Stop();
         AnsiConsole.Write(table);
         AnsiConsole.WriteLine();
         ShowTestRatioChart();
@@ -146,10 +156,10 @@ oldpow(""x"", 2, 3);",
                 case "Rerun All Tests":
                     goto Start;
                 case "Export Test Report And Open":
-                    ExportTestReport(true, stopwatch);
+                    ExportTestReport(true, totalStopwatch);
                     break;
                 case "Only Export Test Report":
-                    ExportTestReport(false, stopwatch);
+                    ExportTestReport(false, totalStopwatch);
                     break;
                 case "View Reports History":
                     TestReportExporter.ShowReportHistory();
@@ -169,6 +179,12 @@ oldpow(""x"", 2, 3);",
             }
         }
 
+    }
+    private static void ResetTestRunState()
+    {
+        _passedTests = 0;
+        _failedTests = 0;
+        _results.Clear();
     }
     private static void ExportTestReport(bool isOpen, Stopwatch sw)
     {
@@ -285,6 +301,22 @@ oldpow(""x"", 2, 3);",
                 $"The type of variable '{name}' is unmatched\n" +
                 $"  Excepted Type: {expectedType}\n" +
                 $"  Actual Type: {actualType}");
+        }
+    }
+    static void AssertTokenSequence(string code, IReadOnlyList<Token> expectedTokens)
+    {
+        Lexer lexer = new(code);
+        for (int i = 0; i < expectedTokens.Count; i++)
+        {
+            Token actual = lexer.NextToken();
+            Token expected = expectedTokens[i];
+            if (actual.Type != expected.Type || actual.Value != expected.Value)
+            {
+                throw new AssertionException(
+                    $"Token mismatch at position {i}\n" +
+                    $"  Expected: {expected.Type} '{expected.Value}'\n" +
+                    $"  Actual: {actual.Type} '{actual.Value}'");
+            }
         }
     }
 }
