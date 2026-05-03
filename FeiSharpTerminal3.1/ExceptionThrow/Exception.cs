@@ -1,6 +1,5 @@
-﻿using FeiSharpStudio;
+using FeiSharpStudio;
 using System.Text;
-
 namespace FeiSharpTerminal3._1.ExceptionThrow
 {
     internal class Exception : System.Exception
@@ -29,7 +28,6 @@ namespace FeiSharpTerminal3._1.ExceptionThrow
                 {
                     int lineEnd = semicolonIndices[line];
                     var lineTokens = tokens.Skip(lineStart).Take(lineEnd - lineStart + 1).ToList();
-
                     sb.Append($"   {line + 1} | ");
                     foreach (var token in lineTokens)
                     {
@@ -43,7 +41,6 @@ namespace FeiSharpTerminal3._1.ExceptionThrow
                         sb.AppendLine($"     | {new string(' ', errorPos)}{new string('^', errorTokenValue.Length)}");
                         sb.AppendLine($"     | {new string(' ', errorPos)}^-- {message}");
                     }
-
                     lineStart = lineEnd + 1;
                 }
                 stringBuilder = sb;
@@ -55,7 +52,7 @@ namespace FeiSharpTerminal3._1.ExceptionThrow
             {
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"[Parser Error]: {code.ToUpperInvariant()}: {message}, help link: https://mars-feifei.github.io/feitools.github.io/feisharp/documents/learn/#{code.ToLowerInvariant()} (failed to display context)");
-                stringBuilder = new StringBuilder().Append("$\"[Parser Error]: {code.ToUpperInvariant()}: {message}, help link: https://mars-feifei.github.io/feitools.github.io/feisharp/documents/learn/#{code.ToLowerInvariant()} (failed to display context)\""); 
+                stringBuilder = new StringBuilder().Append($"[Parser Error]: {code.ToUpperInvariant()}: {message}, help link: https://mars-feifei.github.io/feitools.github.io/feisharp/documents/learn/#{code.ToLowerInvariant()}");
                 Console.ResetColor();
             }
         }

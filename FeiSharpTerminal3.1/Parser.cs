@@ -1,4 +1,4 @@
-﻿using FeiSharp8._5RuntimeSdk;
+using FeiSharp8._5RuntimeSdk;
 using FeiSharpStudio.ClassInstance;
 using FeiSharpStudio.UUID;
 using FeiSharpTerminal3._1;
@@ -10,7 +10,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using Exception = FeiSharpTerminal3._1.ExceptionThrow.Exception;
-
 namespace FeiSharpStudio
 {
     public class Parser
@@ -24,7 +23,6 @@ namespace FeiSharpStudio
                 Value = value;
                 Type = value.GetType();
             }
-
         }
         private Stopwatch Stopwatch { get; set; }
         private List<Token> _tokens;
@@ -351,7 +349,6 @@ namespace FeiSharpStudio
                     else if (MatchKeyword(TokenKeywords.appQuit))
                     {
                         ParseAppQuit();
-                        
                     }
                     else if (MatchKeyword("pause"))
                     {
@@ -391,7 +388,6 @@ namespace FeiSharpStudio
             }
             catch (OperationCanceledException)
             {
-                // 用户取消执行，干净地退出
                 Console.WriteLine(new OutputEventArgs("\n[yellow]Execution cancelled by user[/]"));
                 return;
             }
@@ -402,7 +398,6 @@ namespace FeiSharpStudio
         }
         bool _isQuit = false;
         int _n = 0;
-
         private List<string> _builtInTypesList = [
             "integer", "string", "bool", "extendObject", "object", "char", "objectReturned", "symbol", "double", "float", "error"
         ];
@@ -451,12 +446,11 @@ namespace FeiSharpStudio
             {
                 var assemblies = new[]
         {
-            typeof(Console).Assembly,           // System.Console 程序集
-            typeof(string).Assembly,             // mscorlib/CoreLib
-            Assembly.GetExecutingAssembly(),      // 当前程序集
-            Assembly.GetCallingAssembly()         // 调用程序集
+            typeof(Console).Assembly,
+            typeof(string).Assembly,
+            Assembly.GetExecutingAssembly(),
+            Assembly.GetCallingAssembly()
         };
-
                 foreach (var assembly in assemblies)
                 {
                     type = assembly.GetType(space + "." + className);
@@ -469,7 +463,6 @@ namespace FeiSharpStudio
             MethodInfo method = type.GetMethod(functionName, BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.IgnoreCase, null, paramTypes, null);
             PropertyInfo property = null;
             FieldInfo field = null;
-            
             if (method == null)
             {
                 property = type.GetProperty(functionName, BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.IgnoreCase);
@@ -512,7 +505,6 @@ namespace FeiSharpStudio
             MethodInfo method = type.GetMethod(functionName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance  | BindingFlags.IgnoreCase | BindingFlags.FlattenHierarchy, null, paramTypes, null);
             PropertyInfo property = null;
             FieldInfo field = null;
-
             if (method == null)
             {
                 property = type.GetProperty(functionName, BindingFlags.Public |  BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase | BindingFlags.FlattenHierarchy);
@@ -625,7 +617,6 @@ namespace FeiSharpStudio
                             Advance();
                         }
                     }
-
                 }
                 else if (objects == "memory")
                 {
@@ -662,13 +653,11 @@ namespace FeiSharpStudio
                             res =
                                 $"FeiSharpAssembly_{GetCurrentAssemblyName()}, Version 1.0.0.0, InvariantCulture, type: {type}, in ./std/{type}.f";
                         }
-
                         Advance();
                         if (!MatchPunctuation(",")) throw new Exception(_tokens, _current, "Expected ','", "FS2003");
                         string varname = EvaluateExpression(ParseExpression()).ToString();
                         _variables.NewAdd(varname, res);
                     }
-
                     Advance();
                 }
             }
@@ -677,7 +666,6 @@ namespace FeiSharpStudio
                 throw new Exception(_tokens, _current, "A error " + _current + " was detected as a static-object name, but the corresponding namespace was not applied: FeiSharp.System", "FS3001");
             }
         }
-
         private string GetCurrentAssemblyName()
         {
             return FeiSharpProgramData.AssemblyName;
@@ -698,7 +686,6 @@ namespace FeiSharpStudio
             Advance();
             Advance();
         }
-
         private void Parsesubstr()
         {
             if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
@@ -711,7 +698,6 @@ namespace FeiSharpStudio
             Advance();
             Advance();
         }
-
         private void Parsesqrt()
         {
             if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
@@ -742,7 +728,6 @@ namespace FeiSharpStudio
             Advance();
             Advance();
         }
-
         private void Parsepow()
         {
             if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
@@ -1268,7 +1253,6 @@ namespace FeiSharpStudio
             Advance();
             Advance();
         }
-
         private bool isSystemAssembly = false;
         private void ParseImportStatement()
         {
@@ -1298,11 +1282,9 @@ namespace FeiSharpStudio
             }
             Advance();
         }
-
         private void ParseReadStatement()
         {
             CheckCancellation();
-
             if (isfileassembly)
             {
                 Console.Write("This application want to read your file, do you agree it?(y/n)");
@@ -1315,17 +1297,13 @@ namespace FeiSharpStudio
                 {
                     throw new Exception(_tokens, _current, "User do not agree this application.", "FS2003");
                 }
-
                 CheckCancellation();
-
                 if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
                 string varname = EvaluateExpression(ParseExpression()).ToString();
                 if (!MatchKeyword("as")) throw new Exception(_tokens, _current, "Expected 'as' keyword", "FS2003");
                 string path = EvaluateExpression(ParseExpression()).ToString();
                 Advance();
-
                 CheckCancellation();
-
                 try
                 {
                     _variables.NewAdd(varname, File.ReadAllText(path));
@@ -1341,7 +1319,6 @@ namespace FeiSharpStudio
                 throw new Exception(_tokens, _current, "A error " + _current + " was detected as a function name, but the corresponding namespace was not applied: FeiSharp.IO", "FS3001");
             }
         }
-
         private KeyValuePair<string, bool> Runclass(string name)
         {
             ClassInfo classInfo;
@@ -1421,7 +1398,6 @@ namespace FeiSharpStudio
                 }
                 tokens.Add(_tokens[i]);
                 Advance();
-
             }
             Advance();
             ClassInfo classInfo;
@@ -1520,26 +1496,19 @@ namespace FeiSharpStudio
         private void ParseGetHtmlStatement()
         {
             CheckCancellation();
-
             if (isnetassembly)
             {
                 if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
                 string url = EvaluateExpression(ParseExpression()).ToString();
-
                 CheckCancellation();
-
                 string content = "";
                 using (var cts = new CancellationTokenSource())
                 {
-                    // 设置网络请求超时
                     cts.CancelAfter(TimeSpan.FromSeconds(30));
-
                     try
                     {
                         HttpClient client = new HttpClient();
                         var task = client.GetAsync(url, cts.Token);
-
-                        // 等待任务完成或取消
                         while (!task.IsCompleted)
                         {
                             if (ShouldCancel != null && ShouldCancel())
@@ -1549,7 +1518,6 @@ namespace FeiSharpStudio
                             }
                             Thread.Sleep(100);
                         }
-
                         HttpResponseMessage response = task.Result;
                         if (response.IsSuccessStatusCode)
                         {
@@ -1561,9 +1529,7 @@ namespace FeiSharpStudio
                         throw;
                     }
                 }
-
                 CheckCancellation();
-
                 if (!MatchPunctuation(",")) throw new Exception(_tokens, _current, "Expected ','", "FS2003");
                 string a = EvaluateExpression(ParseExpression()).ToString();
                 try
@@ -1587,7 +1553,6 @@ namespace FeiSharpStudio
             _results.Add(funcName, EvaluateExpression(ParseExpression()));
             _variables.NewAdd($"{funcName}:return", _results[funcName]);
         }
-
         private void ParseThrowStatement()
         {
             string msg = EvaluateExpression(ParseExpression()).ToString();
@@ -1608,7 +1573,6 @@ namespace FeiSharpStudio
             string b = EvaluateExpression(ParseExpression()).ToString();
             bool a = bool.Parse(b);
             Advance();
-
             List<Token> tokens = new List<Token>();
             int indexC = 0;
             int doub = 0;
@@ -1638,17 +1602,14 @@ namespace FeiSharpStudio
                 tokens.Add(_tokens[i]);
                 Advance();
             }
-
             int loopCount = 0;
             do
             {
-                // 检查无限循环
                 loopCount++;
                 if (loopCount % 1000 == 0)
                 {
                     CheckCancellation();
                 }
-
                 _variables = Run(tokens, _variables);
                 _current = current;
                 a = bool.Parse(EvaluateExpression(ParseExpression()).ToString());
@@ -1789,7 +1750,6 @@ namespace FeiSharpStudio
             bool a = bool.Parse(b);
             Advance();
             Advance();
-
             List<Token> tokens = new List<Token>();
             int indexC = 0;
             int doub = 0;
@@ -1820,17 +1780,14 @@ namespace FeiSharpStudio
                 Advance();
             }
             Advance();
-
             int loopCount = 0;
             while (a)
             {
-                // 检查无限循环
                 loopCount++;
                 if (loopCount % 1000 == 0)
                 {
                     CheckCancellation();
                 }
-
                 _variables = Run(tokens, _variables);
                 _current = current;
                 a = bool.Parse(EvaluateExpression(ParseExpression()).ToString());
@@ -1872,7 +1829,6 @@ namespace FeiSharpStudio
                 }
                 tokens.Add(_tokens[i]);
                 Advance();
-
             }
             Advance();
             if (a)
@@ -1978,7 +1934,6 @@ namespace FeiSharpStudio
                 Console.WriteLine(new OutputEventArgs($"function {item.Key}, Parameters Length: {item.Value.Parameter.Count}, Tokens Length: {item.Value.FunctionBody.Count}"));
             }
             Console.WriteLine(new OutputEventArgs($"{_functions.Count}" + " items of functions."));
-            //Console Edition
             Console.WriteLine("Enter any key to continue......");
             Console.ReadKey();
             Console.WriteLine();
@@ -2052,7 +2007,6 @@ namespace FeiSharpStudio
                 token = lexer.NextToken();
                 tokens.Add(token);
             } while (token.Type != TokenTypes.EndOfFile);
-
             Parser parser = new(tokens);
             parser._functions = _functions;
             parser.ShouldCancel = this.ShouldCancel;
@@ -2077,7 +2031,6 @@ namespace FeiSharpStudio
             parser.OutputEvent = this.OutputEvent;
             parser._variables = _vars;
             parser.ShouldCancel = this.ShouldCancel;
-
             try
             {
                 parser.ParseStatements();
@@ -2099,7 +2052,6 @@ namespace FeiSharpStudio
             parser.OutputEvent = this.OutputEvent;
             parser._variables = _vars;
             parser.ShouldCancel = this.ShouldCancel;
-
             try
             {
                 parser.ParseStatements();
@@ -2148,11 +2100,9 @@ namespace FeiSharpStudio
                 token = lexer.NextToken();
                 tokens.Add(token);
             } while (token.Type != TokenTypes.EndOfFile);
-
             Parser parser = new(tokens);
             parser.OutputEvent = this.OutputEvent;
             parser.ShouldCancel = this.ShouldCancel;
-
             try
             {
                 parser.ParseStatements();
@@ -2235,12 +2185,10 @@ namespace FeiSharpStudio
         }
         private void ParseVariableDeclaration()
         {
-            
             if (!MatchToken(TokenTypes.Identifier, out string varName))
             {
                 throw new Exception(_tokens, _current, "Expected variable name", "FS2003");
             }
-
             if (!MatchToken(TokenTypes.Operator, out string op) || op != "=")
             {
                 if (_variables.Count == 14 && _variables.ContainsKey(varName))
@@ -2259,12 +2207,10 @@ namespace FeiSharpStudio
                 }
                 Expr expr = ParseExpression();
                 Advance();
-
                 object value = EvaluateExpression(expr);
                 _variables[varName] = value;
             }
         }
-
         private PrintStmt ParsePrintStatement()
         {
             if (!MatchPunctuation("("))
@@ -2298,7 +2244,6 @@ namespace FeiSharpStudio
             Advance();
             return new PrintStmt(expr);
         }
-
         private Expr ParseExpression()
         {
             Expr expr = ParsePrimary();
@@ -2322,7 +2267,6 @@ namespace FeiSharpStudio
             }
             return expr;
         }
-
         private Expr ParsePrimary()
         {
             string varName = "";
@@ -2371,12 +2315,11 @@ namespace FeiSharpStudio
                     {
                         var assemblies = new[]
                 {
-            typeof(Console).Assembly,           // System.Console 程序集
-            typeof(string).Assembly,             // mscorlib/CoreLib
-            Assembly.GetExecutingAssembly(),      // 当前程序集
-            Assembly.GetCallingAssembly()         // 调用程序集
+            typeof(Console).Assembly,
+            typeof(string).Assembly,
+            Assembly.GetExecutingAssembly(),
+            Assembly.GetCallingAssembly()
         };
-
                         foreach (var assembly in assemblies)
                         {
                             type = assembly.GetType(space + "." + className);
@@ -2403,7 +2346,6 @@ namespace FeiSharpStudio
                 }
                 else
                 {
-                    
                     if (_variables.TryGetValue(varName, out object value))
                     {
                         return new ValueExpr(value);
@@ -2444,7 +2386,6 @@ namespace FeiSharpStudio
                 {
                     return new ValueExpr(value);
                 }
-
                 throw new Exception(_tokens, _current, $"Undefined variable: {varName}", "FS3001");
             }
             else if (MatchKeyword("false"))
@@ -2546,7 +2487,6 @@ namespace FeiSharpStudio
             }
             return false;
         }
-
         private bool MatchToken(TokenTypes type, out string value)
         {
             if (Check(type))
@@ -2565,7 +2505,6 @@ namespace FeiSharpStudio
                 Advance();
                 return true;
             }
-
             return false;
         }
         private bool MatchPunctuation(string punctuation)
@@ -2703,7 +2642,7 @@ namespace FeiSharpStudio
                             if (left is string or char || right is double)
                             {
                                 return string.Concat(Enumerable.Repeat(left.ToString(), (int)right));
-                               
+
                             }
                             else if (left is double || right is string or char)
                             {
@@ -2730,8 +2669,6 @@ namespace FeiSharpStudio
                             "&" => (bool)left && (bool)right,
                             "|" => (bool)left || (bool)right,
                             "!" => (bool)left != (bool)right,
-                            "^" => !(bool)left && !(bool)right,
-                            "%" => !(bool)left || !(bool)right,
                             _ => throw new Exception(_tokens, _current, $"Cannot using operator '{binExpr.Operator}' to connect {left.GetType().ToString().ToLower()}_obj and {right.GetType().ToString().ToLower()}_obj.", "FS2003")
                         };
                     }
@@ -2886,29 +2823,29 @@ public static class SmartActivator
         {
             if (type == null) throw new ArgumentNullException(nameof(type));
 
-            // 获取所有公共构造函数
+
             var constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
 
-            // 如果没有参数，尝试无参构造函数
+
             if (args == null || args.Length == 0)
             {
                 var ctor = constructors.FirstOrDefault(c => c.GetParameters().Length == 0);
                 if (ctor != null)
                     return ctor.Invoke(null);
 
-                // 尝试创建值类型的默认实例
+
                 if (type.IsValueType)
                     return Activator.CreateInstance(type);
 
                 throw new MissingMethodException($"No parameterless constructor found for type {type}");
             }
 
-            // 1. 首先尝试精确匹配
+
             var exactMatch = FindExactMatchConstructor(constructors, args);
             if (exactMatch != null)
                 return exactMatch.Invoke(args);
 
-            // 2. 尝试参数数量匹配且可转换
+
             var convertibleMatch = FindConvertibleMatchConstructor(constructors, args);
             if (convertibleMatch != null)
             {
@@ -2916,14 +2853,14 @@ public static class SmartActivator
                 return convertibleMatch.Invoke(convertedArgs);
             }
 
-            // 3. 特殊处理已知类型（如 string）
+
             if (type == typeof(string))
                 return HandleStringCreation(args);
 
             throw new MissingMethodException($"Cannot find matching constructor for type {type}");
         }
 
-        // 精确匹配（默认行为）
+
         private static ConstructorInfo FindExactMatchConstructor(
             ConstructorInfo[] constructors, object[] args)
         {
@@ -2939,11 +2876,11 @@ public static class SmartActivator
                     var paramType = parameters[i].ParameterType;
                     var arg = args[i];
 
-                    // 精确类型匹配（考虑 null）
+
                     if (arg == null)
                     {
                         if (paramType.IsValueType && Nullable.GetUnderlyingType(paramType) == null)
-                            return false; // 不能将 null 赋给非可空值类型
+                            return false;
                     }
                     else if (arg.GetType() != paramType)
                     {
@@ -2954,7 +2891,7 @@ public static class SmartActivator
             });
         }
 
-        // 可转换匹配（参数数量相同，类型可转换）
+
         private static ConstructorInfo FindConvertibleMatchConstructor(
             ConstructorInfo[] constructors, object[] args)
         {
@@ -2962,7 +2899,7 @@ public static class SmartActivator
                 .Where(ctor => ctor.GetParameters().Length == args.Length)
                 .ToList();
 
-            // 评分系统：找到最匹配的构造函数
+
             var scoredCandidates = candidates.Select(ctor =>
             {
                 var parameters = ctor.GetParameters();
@@ -2976,13 +2913,13 @@ public static class SmartActivator
 
                     if (arg == null)
                     {
-                        // null 可以赋给引用类型或可空值类型
+
                         if (paramType.IsValueType && Nullable.GetUnderlyingType(paramType) == null)
                         {
                             allConvertible = false;
                             break;
                         }
-                        // null 匹配：较低分数
+
                         score += 1;
                     }
                     else
@@ -2991,17 +2928,17 @@ public static class SmartActivator
 
                         if (paramType == argType)
                         {
-                            // 精确匹配：最高分
+
                             score += 100;
                         }
                         else if (paramType.IsAssignableFrom(argType))
                         {
-                            // 直接赋值兼容：高分
+
                             score += 50;
                         }
                         else if (CanConvert(argType, paramType))
                         {
-                            // 需要类型转换：低分
+
                             score += 10;
                         }
                         else
@@ -3021,26 +2958,26 @@ public static class SmartActivator
             return scoredCandidates.FirstOrDefault()?.Constructor;
         }
 
-        // 检查是否可以转换
+
         private static bool CanConvert(Type fromType, Type toType)
         {
             if (fromType == toType) return true;
             if (toType.IsAssignableFrom(fromType)) return true;
 
-            // 内置类型转换检查
+
             try
             {
-                // 尝试使用 TypeDescriptor 或 Convert
+
                 if (fromType == typeof(string))
                 {
-                    // 字符串可以转换为很多类型
+
                     if (toType == typeof(ReadOnlySpan<char>) ||
                         toType == typeof(Span<char>) ||
                         toType == typeof(char[]) ||
                         toType == typeof(IEnumerable<char>))
                         return true;
                 }
-                // 使用 Convert.ChangeType 测试
+
                 var testValue = fromType.IsValueType ? Activator.CreateInstance(fromType) : "";
                 Convert.ChangeType(testValue, toType);
                 return true;
@@ -3051,7 +2988,7 @@ public static class SmartActivator
             }
         }
 
-        // 转换参数以匹配构造函数
+
         private static object[] ConvertArguments(ConstructorInfo constructor, object[] args)
         {
             var parameters = constructor.GetParameters();
@@ -3072,7 +3009,7 @@ public static class SmartActivator
                 }
                 else
                 {
-                    // 执行类型转换
+
                     convertedArgs[i] = ConvertValue(arg, paramType);
                 }
             }
@@ -3080,7 +3017,7 @@ public static class SmartActivator
             return convertedArgs;
         }
 
-        // 值转换逻辑
+
         private static object ConvertValue(object value, Type targetType)
         {
             if (value == null) return null;
@@ -3092,14 +3029,14 @@ public static class SmartActivator
                 return ((string)value).ToCharArray();
             }
 
-            // 尝试使用 Convert.ChangeType
+
             try
             {
                 return Convert.ChangeType(value, targetType);
             }
             catch
             {
-                // 如果失败，尝试其他转换方式
+
                 if (targetType.IsAssignableFrom(sourceType))
                     return value;
 
@@ -3107,7 +3044,7 @@ public static class SmartActivator
             }
         }
 
-        // 专门处理字符串创建
+
         private static object HandleStringCreation(object[] args)
         {
             if (args == null || args.Length == 0)
@@ -3115,17 +3052,17 @@ public static class SmartActivator
 
             var arg = args[0];
 
-            // 处理常见的字符串构造函数场景
+
             return arg switch
             {
-                string s => s,  // 直接返回字符串
+                string s => s,
 
                 char[] chars => new string(chars),
 
-                // char, int 的情况：new string('a', 5)
+
                 char c when args.Length >= 2 && args[1] is int count => new string(c, count),
 
-                // 其他类型转换为字符串
+
                 _ => arg?.ToString() ?? string.Empty
             };
         }

@@ -1,4 +1,4 @@
-﻿using Spectre.Console;
+using Spectre.Console;
 using FeiSharp8._5RuntimeSdk;
 using System;
 using System.Collections.Generic;
@@ -8,7 +8,6 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using static FeiSharpTerminal3._1.Tests.FeiSharpTests;
-
 namespace FeiSharpTerminal3._1.Tests
 {
     public static class TestReportExporter
@@ -16,7 +15,6 @@ namespace FeiSharpTerminal3._1.Tests
         public static readonly string ReportsDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
             "FeiSharp", "TestReports");
-
         public class TestReportData
         {
             public DateTime Timestamp { get; set; }
@@ -31,7 +29,6 @@ namespace FeiSharpTerminal3._1.Tests
             public string SystemInfo { get; set; } = GetSystemInfo();
             public string ComputerName { get; set; } = Environment.MachineName;
             public string UserName { get; set; } = Environment.UserName;
-
             private static string GetSystemInfo()
             {
                 return $"OS: {Environment.OSVersion}\n" +
@@ -50,9 +47,7 @@ namespace FeiSharpTerminal3._1.Tests
         {
             try
             {
-                // 创建报告目录
                 Directory.CreateDirectory(ReportsDirectory);
-
                 var reportData = new TestReportData
                 {
                     Timestamp = DateTime.Now,
@@ -62,17 +57,11 @@ namespace FeiSharpTerminal3._1.Tests
                     Duration = duration,
                     Results = results
                 };
-
-                // 生成文件名
                 var timestamp = reportData.Timestamp.ToString("yyyyMMdd_HHmmss");
                 var htmlFile = Path.Combine(ReportsDirectory, $"FeiSharp_Test_Report_{timestamp}.html");
                 var jsonFile = Path.Combine(ReportsDirectory, $"FeiSharp_Test_Report_{timestamp}.json");
-
-                // 生成报告
                 GenerateHtmlReport(reportData, htmlFile);
                 GenerateJsonReport(reportData, jsonFile);
-
-                // 显示成功信息
                 ShowExportSuccess(htmlFile, jsonFile, openAfterExport);
             }
             catch (Exception ex)
@@ -80,7 +69,6 @@ namespace FeiSharpTerminal3._1.Tests
                 AnsiConsole.MarkupLine($"[red]Export report failed: {ex.Message}[/]");
             }
         }
-
         private static void GenerateHtmlReport(TestReportData data, string filepath)
         {
             var html = $@"<!DOCTYPE html>
@@ -96,13 +84,13 @@ namespace FeiSharpTerminal3._1.Tests
             box-sizing: border-box;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }}
-        
+
         body {{
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 40px 20px;
         }}
-        
+
         .container {{
             max-width: 1200px;
             margin: 0 auto;
@@ -112,7 +100,7 @@ namespace FeiSharpTerminal3._1.Tests
             overflow: hidden;
             animation: slideIn 0.5s ease-out;
         }}
-        
+
         @keyframes slideIn {{
             from {{
                 opacity: 0;
@@ -123,7 +111,7 @@ namespace FeiSharpTerminal3._1.Tests
                 transform: translateY(0);
             }}
         }}
-        
+
         .header {{
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -132,7 +120,7 @@ namespace FeiSharpTerminal3._1.Tests
             position: relative;
             overflow: hidden;
         }}
-        
+
         .header::before {{
             content: '';
             position: absolute;
@@ -143,25 +131,25 @@ namespace FeiSharpTerminal3._1.Tests
             background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
             animation: rotate 20s linear infinite;
         }}
-        
+
         @keyframes rotate {{
             from {{ transform: rotate(0deg); }}
             to {{ transform: rotate(360deg); }}
         }}
-        
+
         .header h1 {{
             font-size: 3em;
             margin-bottom: 10px;
             position: relative;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
         }}
-        
+
         .header p {{
             font-size: 1.2em;
             opacity: 0.95;
             position: relative;
         }}
-        
+
         .summary-cards {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -169,7 +157,7 @@ namespace FeiSharpTerminal3._1.Tests
             padding: 40px;
             background: #f8f9fa;
         }}
-        
+
         .card {{
             background: white;
             border-radius: 15px;
@@ -181,42 +169,42 @@ namespace FeiSharpTerminal3._1.Tests
             position: relative;
             overflow: hidden;
         }}
-        
+
         .card:hover {{
             transform: translateY(-5px);
             box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
         }}
-        
+
         .card.pass {{
             border-bottom: 4px solid #4CAF50;
         }}
-        
+
         .card.fail {{
             border-bottom: 4px solid #f44336;
         }}
-        
+
         .card.total {{
             border-bottom: 4px solid #667eea;
         }}
-        
+
         .card .icon {{
             font-size: 3em;
             margin-bottom: 15px;
         }}
-        
+
         .card .value {{
             font-size: 2.5em;
             font-weight: bold;
             margin-bottom: 5px;
         }}
-        
+
         .card .label {{
             color: #666;
             font-size: 0.9em;
             text-transform: uppercase;
             letter-spacing: 1px;
         }}
-        
+
         .card .percentage {{
             position: absolute;
             top: 10px;
@@ -227,19 +215,19 @@ namespace FeiSharpTerminal3._1.Tests
             font-size: 0.8em;
             font-weight: bold;
         }}
-        
+
         .info-section {{
             padding: 30px 40px;
             background: white;
             border-bottom: 1px solid #eee;
         }}
-        
+
         .info-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
         }}
-        
+
         .info-item {{
             display: flex;
             align-items: center;
@@ -247,34 +235,34 @@ namespace FeiSharpTerminal3._1.Tests
             background: #f8f9fa;
             border-radius: 10px;
         }}
-        
+
         .info-item .label {{
             font-weight: bold;
             color: #667eea;
             width: 100px;
         }}
-        
+
         .info-item .value {{
             color: #333;
             flex: 1;
         }}
-        
+
         .progress-section {{
             padding: 30px 40px;
             background: #f8f9fa;
         }}
-        
+
         .progress-container {{
             margin: 20px 0;
         }}
-        
+
         .progress-label {{
             display: flex;
             justify-content: space-between;
             margin-bottom: 5px;
             color: #666;
         }}
-        
+
         .progress-bar {{
             height: 30px;
             background: #e0e0e0;
@@ -282,7 +270,7 @@ namespace FeiSharpTerminal3._1.Tests
             overflow: hidden;
             display: flex;
         }}
-        
+
         .progress-pass {{
             height: 100%;
             background: linear-gradient(90deg, #4CAF50, #8BC34A);
@@ -295,7 +283,7 @@ namespace FeiSharpTerminal3._1.Tests
             font-weight: bold;
             text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
         }}
-        
+
         .progress-fail {{
             height: 100%;
             background: linear-gradient(90deg, #f44336, #FF7043);
@@ -308,11 +296,11 @@ namespace FeiSharpTerminal3._1.Tests
             font-weight: bold;
             text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
         }}
-        
+
         .results-section {{
             padding: 30px 40px;
         }}
-        
+
         .results-section h2 {{
             margin-bottom: 20px;
             color: #333;
@@ -320,14 +308,14 @@ namespace FeiSharpTerminal3._1.Tests
             align-items: center;
             gap: 10px;
         }}
-        
+
         .filter-bar {{
             display: flex;
             gap: 10px;
             margin-bottom: 20px;
             flex-wrap: wrap;
         }}
-        
+
         .filter-btn {{
             padding: 8px 16px;
             border: none;
@@ -337,26 +325,26 @@ namespace FeiSharpTerminal3._1.Tests
             transition: all 0.3s ease;
             background: #e0e0e0;
         }}
-        
+
         .filter-btn:hover {{
             transform: translateY(-2px);
         }}
-        
+
         .filter-btn.all {{
             background: #667eea;
             color: white;
         }}
-        
+
         .filter-btn.pass {{
             background: #4CAF50;
             color: white;
         }}
-        
+
         .filter-btn.fail {{
             background: #f44336;
             color: white;
         }}
-        
+
         table {{
             width: 100%;
             border-collapse: collapse;
@@ -366,7 +354,7 @@ namespace FeiSharpTerminal3._1.Tests
             overflow: hidden;
             box-shadow: 0 5px 20px rgba(0,0,0,0.05);
         }}
-        
+
         th {{
             background: #667eea;
             color: white;
@@ -374,16 +362,16 @@ namespace FeiSharpTerminal3._1.Tests
             text-align: left;
             font-weight: 500;
         }}
-        
+
         td {{
             padding: 15px;
             border-bottom: 1px solid #eee;
         }}
-        
+
         tr:hover {{
             background: #f8f9fa;
         }}
-        
+
         .status-badge {{
             display: inline-block;
             padding: 5px 10px;
@@ -391,17 +379,17 @@ namespace FeiSharpTerminal3._1.Tests
             font-size: 0.85em;
             font-weight: bold;
         }}
-        
+
         .status-badge.pass {{
             background: rgba(76, 175, 80, 0.1);
             color: #4CAF50;
         }}
-        
+
         .status-badge.fail {{
             background: rgba(244, 67, 54, 0.1);
             color: #f44336;
         }}
-        
+
         .error-detail {{
             background: #ffebee;
             padding: 10px;
@@ -411,7 +399,7 @@ namespace FeiSharpTerminal3._1.Tests
             color: #c62828;
             border-left: 3px solid #f44336;
         }}
-        
+
         .duration-badge {{
             background: #e0e0e0;
             padding: 3px 8px;
@@ -419,7 +407,7 @@ namespace FeiSharpTerminal3._1.Tests
             font-size: 0.85em;
             color: #666;
         }}
-        
+
         .footer {{
             background: #333;
             color: white;
@@ -427,23 +415,23 @@ namespace FeiSharpTerminal3._1.Tests
             padding: 20px;
             font-size: 0.9em;
         }}
-        
+
         .footer a {{
             color: #667eea;
             text-decoration: none;
         }}
-        
+
         .footer a:hover {{
             text-decoration: underline;
         }}
-        
+
         .chart-container {{
             display: flex;
             justify-content: center;
             align-items: center;
             padding: 20px;
         }}
-        
+
         .pie-chart {{
             width: 200px;
             height: 200px;
@@ -456,34 +444,34 @@ namespace FeiSharpTerminal3._1.Tests
             box-shadow: 0 5px 20px rgba(0,0,0,0.1);
             animation: spin 1s ease-out;
         }}
-        
+
         @keyframes spin {{
             from {{ transform: rotate(0deg); }}
             to {{ transform: rotate(360deg); }}
         }}
-        
+
         .legend {{
             display: flex;
             justify-content: center;
             gap: 30px;
             margin-top: 20px;
         }}
-        
+
         .legend-item {{
             display: flex;
             align-items: center;
             gap: 8px;
         }}
-        
+
         .legend-color {{
             width: 16px;
             height: 16px;
             border-radius: 4px;
         }}
-        
+
         .legend-color.pass {{ background: #4CAF50; }}
         .legend-color.fail {{ background: #f44336; }}
-        
+
         @media (max-width: 768px) {{
             .header h1 {{ font-size: 2em; }}
             .summary-cards {{ grid-template-columns: 1fr; }}
@@ -499,35 +487,35 @@ namespace FeiSharpTerminal3._1.Tests
             <p>Generated Time: {data.Timestamp:yyyy-MM-dd HH:mm:ss}</p>
             <p>Version {data.Version}</p>
         </div>
-        
+
         <div class='summary-cards'>
             <div class='card total'>
                 <div class='icon'>📊</div>
                 <div class='value'>{data.TotalTests}</div>
                 <div class='label'>Total Tests Count</div>
             </div>
-            
+
             <div class='card pass'>
                 <div class='icon'>✅</div>
                 <div class='value'>{data.Passed}</div>
                 <div class='label'>PASS</div>
                 <div class='percentage'>{data.PassRate}%</div>
             </div>
-            
+
             <div class='card fail'>
                 <div class='icon'>❌</div>
                 <div class='value'>{data.Failed}</div>
                 <div class='label'>FAIL</div>
                 <div class='percentage'>{data.FailRate}%</div>
             </div>
-            
+
             <div class='card'>
                 <div class='icon'>⏱️</div>
                 <div class='value'>{data.Duration.TotalMilliseconds:F0}ms</div>
                 <div class='label'>Total Elapsed Time</div>
             </div>
         </div>
-        
+
         <div class='info-section'>
             <h2>📋 System Information</h2>
             <div class='info-grid'>
@@ -557,14 +545,14 @@ namespace FeiSharpTerminal3._1.Tests
                 </div>
             </div>
         </div>
-        
+
         <div class='progress-section'>
             <h2>📈 Distribution Of Test Results</h2>
-            
+
             <div class='chart-container'>
                 <div class='pie-chart'></div>
             </div>
-            
+
             <div class='legend'>
                 <div class='legend-item'>
                     <div class='legend-color pass'></div>
@@ -575,7 +563,7 @@ namespace FeiSharpTerminal3._1.Tests
                     <span>FAIL ({data.Failed}) - {data.FailRate}%</span>
                 </div>
             </div>
-            
+
             <div class='progress-container'>
                 <div class='progress-label'>
                     <span>Passed Rate</span>
@@ -587,7 +575,7 @@ namespace FeiSharpTerminal3._1.Tests
                     </div>
                 </div>
             </div>
-            
+
             <div class='progress-container'>
                 <div class='progress-label'>
                     <span>Failed Rate</span>
@@ -600,16 +588,16 @@ namespace FeiSharpTerminal3._1.Tests
                 </div>
             </div>
         </div>
-        
+
         <div class='results-section'>
             <h2>🔍 Test Results Details</h2>
-            
+
             <div class='filter-bar'>
                 <button class='filter-btn all' onclick='filterTests(""all"")'>All ({data.TotalTests})</button>
                 <button class='filter-btn pass' onclick='filterTests(""pass"")'>Pass ({data.Passed})</button>
                 <button class='filter-btn fail' onclick='filterTests(""fail"")'>Fail ({data.Failed})</button>
             </div>
-            
+
             <table id='testTable'>
                 <thead>
                     <tr>
@@ -625,19 +613,19 @@ namespace FeiSharpTerminal3._1.Tests
                 </tbody>
             </table>
         </div>
-        
+
         <div class='footer'>
             <p>FeiSharp Test Report | Generated by FeiSharp Test Framework</p>
             <p>© 2024-2026 Mars Fei. All rights reserved.</p>
         </div>
     </div>
-    
+
     <script>
         function filterTests(type) {{
             const rows = document.querySelectorAll('#testTable tbody tr');
             rows.forEach(row => {{
                 const status = row.querySelector('.status-badge').textContent.trim();
-                if (type === 'all' || 
+                if (type === 'all' ||
                     (type === 'pass' && status === 'PASS') ||
                     (type === 'fail' && status === 'FAIL')) {{
                     row.style.display = '';
@@ -645,15 +633,11 @@ namespace FeiSharpTerminal3._1.Tests
                     row.style.display = 'none';
                 }}
             }});
-            
-            // 更新按钮样式
             document.querySelectorAll('.filter-btn').forEach(btn => {{
                 btn.style.opacity = '0.5';
             }});
             event.target.style.opacity = '1';
         }}
-        
-        // 添加动画效果
         document.addEventListener('DOMContentLoaded', function() {{
             const cards = document.querySelectorAll('.card');
             cards.forEach((card, index) => {{

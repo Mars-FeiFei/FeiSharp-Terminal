@@ -1,5 +1,4 @@
-﻿#region FeiSharp Assembly
-//Assembly FeiSharp, Version="8.0", Type="Terminal"
+#region FeiSharp Assembly
 #endregion
 #region Import
 using System;
@@ -54,7 +53,6 @@ namespace FeiSharpTerminal3._1
     {
         public static Lang Lang = Lang.English;
         public static NameSelecter NameSelecter { get { return new NameSelecter(Lang); } }
-        
         public static string GetIntroduction()
         {
             return @"

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -15,7 +15,12 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <LangVersion>preview</LangVersion>
+    <ApplicationIcon>deepseek_svg_20260502_06726a.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="deepseek_svg_20260502_06726a.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="PublishAotCompressed" Version="1.0.5" />

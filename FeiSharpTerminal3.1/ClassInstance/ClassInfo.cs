@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -11,7 +11,7 @@ namespace FeiSharpStudio.ClassInstance
         public string Name {  get; set; }
         public Dictionary<string,FunctionInfo> _FunctionInfo {  get; set; }
         public Dictionary<string,object> _Vars { get; set; }
-        public ClassInfo(Dictionary<string,FunctionInfo> functionInfos,Dictionary<string,object> vars,string name) { 
+        public ClassInfo(Dictionary<string,FunctionInfo> functionInfos,Dictionary<string,object> vars,string name) {
             _FunctionInfo = new(functionInfos); _Vars = vars;Name = name;
         }
     }

@@ -1,4 +1,4 @@
-﻿using FeiSharpStudio;
+using FeiSharpStudio;
 using FeiSharpTerminal3._1;
 using FeiSharpTerminal3._1.Tests;
 using Spectre.Console;
@@ -13,13 +13,11 @@ public class Program
 {
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint mode);
-
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool GetConsoleMode(IntPtr handle, out uint mode);
-
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern IntPtr GetStdHandle(int handle);
-
+    static string FEISHARP_IMPORT_PATH = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FeiSharpImportFiles");
     public static string? MapPath(string vpath, string _applicationPath)
     {
         string path = "";
@@ -29,22 +27,19 @@ public class Program
         }
         else if (vpath.StartsWith("$"))
         {
-            path = Path.Combine(AppContext.BaseDirectory, "Imports/" + vpath[1..]);
+            path = Path.Combine(FEISHARP_IMPORT_PATH, vpath[1..]);
         }
         path = path.Replace("/", "\\");
         return File.Exists(path) ? path : null;
     }
-
     static void EnableVirtualTerminalProcessing()
     {
         var handle = GetStdHandle(STD_OUTPUT_HANDLE);
         GetConsoleMode(handle, out uint mode);
         SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
     }
-
     const int STD_OUTPUT_HANDLE = -11;
     const uint ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
-
     static string CreateWavyUnderline(int length)
     {
         const char waveChar1 = '~';
@@ -55,47 +50,34 @@ public class Program
         }
         return new string(wavyLine);
     }
-
     [DllImport("kernel32.dll", ExactSpelling = true)]
     static extern IntPtr GetConsoleWindow();
-
     [DllImport("user32.dll")]
     static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
     const int SW_MAXIMIZE = 3;
-
     static string GetUserCode()
     {
         global::System.String code = "";
         global::System.String scode = "";
-
         AnsiConsole.MarkupLine("[grey]Enter your code (type 'exit' to finish, Ctrl+C to cancel execution)[/]");
-
         while (true)
         {
-            // 检查是否有中断请求
             if (ExecutionCancellation.IsCancellationRequested)
             {
                 AnsiConsole.MarkupLine("[yellow]Code input cancelled[/]");
                 return "";
             }
-
             Console.Write("... ");
             code = Console.ReadLine();
-
             if (code == "exit")
             {
                 AnsiConsole.MarkupLine($"[grey]>>>[/] [yellow]Exiting code input mode at[/] [cyan]{DateTime.Now}[/]");
                 break;
             }
-
             scode += code + "\n";
         }
-
         return scode;
     }
-
-
     public static string _applicationPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
     private static Parser _parser;
     static string dynamicTitle = "FeiSharp - Inputing Command";
@@ -107,7 +89,6 @@ public class Program
         dynamicTitle = "FeiSharp - " + change;
         Console.Title = dynamicTitle;
     }
-
     static void TryConfigureConsole(Action configureAction)
     {
         try
@@ -137,18 +118,15 @@ public class Program
         {
             return null;
         }
-
         string fullInputPath = Path.GetFullPath(inputPath.Trim().Trim('"'));
         if (!File.Exists(fullInputPath))
         {
             return null;
         }
-
         if (!string.Equals(Path.GetExtension(fullInputPath), ".feiproj", StringComparison.OrdinalIgnoreCase))
         {
             return fullInputPath;
         }
-
         FeiSharpProjectFile? projectFile = JsonSerializer.Deserialize(
             File.ReadAllText(fullInputPath),
             FeiSharpJsonSerializerContext.Default.FeiSharpProjectFile);
@@ -165,12 +143,10 @@ public class Program
         {
             return null;
         }
-
         string projectDirectory = Path.GetDirectoryName(fullInputPath) ?? Directory.GetCurrentDirectory();
         string resolvedMainFile = Path.GetFullPath(Path.Combine(projectDirectory, mainFile));
         return File.Exists(resolvedMainFile) ? resolvedMainFile : null;
     }
-
     static string GetBuildBaseDirectory(string inputPath, string sourcePath)
     {
         if (!string.IsNullOrWhiteSpace(inputPath))
@@ -181,10 +157,8 @@ public class Program
                 return Path.GetDirectoryName(fullInputPath) ?? Directory.GetCurrentDirectory();
             }
         }
-
         return Path.GetDirectoryName(sourcePath) ?? Directory.GetCurrentDirectory();
     }
-
     static string GetBuildOutputName(string inputPath, string sourcePath)
     {
         if (!string.IsNullOrWhiteSpace(inputPath))
@@ -211,10 +185,8 @@ public class Program
                 }
             }
         }
-
         return Path.GetFileNameWithoutExtension(sourcePath);
     }
-
     static string ResolveBuildOutputPath(string sourcePath, string? requestedOutputPath)
     {
         if (string.IsNullOrWhiteSpace(requestedOutputPath))
@@ -223,7 +195,6 @@ public class Program
                 Path.GetDirectoryName(sourcePath) ?? Directory.GetCurrentDirectory(),
                 Path.GetFileNameWithoutExtension(sourcePath) + ".exe");
         }
-
         string trimmedPath = requestedOutputPath.Trim().Trim('"');
         if (trimmedPath.EndsWith("\\") || trimmedPath.EndsWith("/"))
         {
@@ -231,30 +202,25 @@ public class Program
                 Path.GetFullPath(trimmedPath),
                 Path.GetFileNameWithoutExtension(sourcePath) + ".exe");
         }
-
         string fullPath = Path.GetFullPath(trimmedPath);
         if (Directory.Exists(fullPath))
         {
             return Path.Combine(fullPath, Path.GetFileNameWithoutExtension(sourcePath) + ".exe");
         }
-
         return string.Equals(Path.GetExtension(fullPath), ".exe", StringComparison.OrdinalIgnoreCase)
             ? fullPath
             : fullPath + ".exe";
     }
-
     static string ResolveBuildOutputPath(string inputPath, string sourcePath, string? requestedOutputPath)
     {
         if (string.IsNullOrWhiteSpace(requestedOutputPath))
         {
             string buildBaseDirectory = GetBuildBaseDirectory(inputPath, sourcePath);
             string outputName = GetBuildOutputName(inputPath, sourcePath);
-            return Path.Combine(buildBaseDirectory, "bin", "obj", "feisharp.sdk 9.0", outputName + ".exe");
+            return Path.Combine(buildBaseDirectory, "bin", "obj", "feisharp.sdk 10.0", outputName + ".exe");
         }
-
         return ResolveBuildOutputPath(sourcePath, requestedOutputPath);
     }
-
     static string GetRuntimeAssemblyPath()
     {
         string assemblyName = typeof(Program).Assembly.GetName().Name ?? "feisharp";
@@ -263,10 +229,8 @@ public class Program
         {
             return bundledDllPath;
         }
-
         throw new FileNotFoundException("Unable to locate the FeiSharp runtime assembly.", bundledDllPath);
     }
-
     static string GetWindowsRuntimeIdentifier()
     {
         return RuntimeInformation.OSArchitecture switch
@@ -276,19 +240,16 @@ public class Program
             _ => "win-x64"
         };
     }
-
     static bool TryBuildExecutable(string inputPath, string? requestedOutputPath, out string outputExePath, out string errorMessage)
     {
         outputExePath = string.Empty;
         errorMessage = string.Empty;
-
         string? sourcePath = ResolveFeiSharpSourcePath(inputPath);
         if (sourcePath == null)
         {
             errorMessage = "The source file or project file could not be found.";
             return false;
         }
-
         string runtimeAssemblyPath;
         try
         {
@@ -299,10 +260,8 @@ public class Program
             errorMessage = ex.Message;
             return false;
         }
-
         outputExePath = ResolveBuildOutputPath(inputPath, sourcePath, requestedOutputPath);
         Directory.CreateDirectory(Path.GetDirectoryName(outputExePath) ?? Directory.GetCurrentDirectory());
-
         string previousApplicationPath = _applicationPath;
         string tempRoot = Path.Combine(Path.GetTempPath(), "FeiSharpBuild", Guid.NewGuid().ToString("N"));
         string tempProjectPath = Path.Combine(tempRoot, "GeneratedLauncher.csproj");
@@ -311,7 +270,6 @@ public class Program
         string tempPublishDirectory = Path.Combine(tempRoot, "publish");
         string assemblyName = Path.GetFileNameWithoutExtension(outputExePath);
         string base64Source;
-
         try
         {
             _applicationPath = sourcePath;
@@ -328,15 +286,12 @@ public class Program
         {
             _applicationPath = previousApplicationPath;
         }
-
         try
         {
             Directory.CreateDirectory(tempRoot);
-
             string escapedAssemblyName = System.Security.SecurityElement.Escape(assemblyName) ?? assemblyName;
             string escapedRuntimeAssemblyPath = System.Security.SecurityElement.Escape(runtimeAssemblyPath) ?? runtimeAssemblyPath;
             string runtimeIdentifier = GetWindowsRuntimeIdentifier();
-
             File.WriteAllText(tempProjectPath, $$"""
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -452,10 +407,13 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
     public static async Task Main(string[] args)
     {
         #region <head></head>
-        //head
+
         Console.OutputEncoding = Encoding.Unicode;
         Console.InputEncoding = Encoding.Unicode;
         ExecutionCancellation.Initialize();
+        Directory.CreateDirectory(FEISHARP_IMPORT_PATH);
+        if(Environment.GetEnvironmentVariable("FEISHARP_IMPORT_PATH", EnvironmentVariableTarget.User) == null)
+            Environment.SetEnvironmentVariable("FEISHARP_IMPORT_PATH", FEISHARP_IMPORT_PATH, EnvironmentVariableTarget.User);
         if (args.Length == 0)
             FeiSharpTests.RunAllTests();
         TryConfigureConsole(() => Console.CursorSize = 25);
@@ -464,21 +422,21 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
         TryConfigureConsole(() => Console.CursorVisible = true);
         TryConfigureConsole(() => Console.Title = dynamicTitle);
 
-        // 漂亮的启动标题
+
         AnsiConsole.Write(
-            new FigletText("FEI# Target SDK 9.0")
+            new FigletText("FEI# Target SDK 10.0")
                 .Color(Color.Cyan1));
 
-        var rule = new Rule($"[yellow]Version 9.0[/]")
+        var rule = new Rule($"[yellow]Version 10.0[/]")
         {
             Style = Style.Parse("blue"),
             Justification = Justify.Left
         };
         AnsiConsole.Write(rule);
 
-        // 创建信息面板
+
         var infoPanel = new Panel(
-            "[grey]FeiSharp 9.0 (tags/v9.0, Apr 7 2026, 20:49:47) MSC v.1942 64 bit (AMD64) on win32[/]\n" +
+            "[grey]FeiSharp 10.0 (tags/v10.0, Apr 7 2026, 20:49:47) MSC v.1942 64 bit (AMD64) on win32[/]\n" +
             "[grey]Type [green]\"help\"[/], [green]\"copyright\"[/], [green]\"credits\"[/] or [green]\"license\"[/] for more information.[/]")
             .Border(BoxBorder.Rounded)
             .BorderStyle(Style.Parse("grey"))
@@ -486,7 +444,7 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
 
         AnsiConsole.Write(infoPanel);
         AnsiConsole.WriteLine();
-        //end head
+
         #endregion
 
         if (args.Length > 0 && string.Equals(args[0], "build", StringComparison.OrdinalIgnoreCase))
@@ -500,7 +458,7 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
                 return;
             }
 
-            string? outputArg = "out\\feisharp-sdk-9.0-release\\" + (args.Length > 2 ? args[2] : null);
+            string? outputArg = "out\\feisharp-sdk-10.0-release\\" + (args.Length > 2 ? args[2] : null);
             await AnsiConsole.Status()
                 .StartAsync("[yellow]Building executable...[/]", async ctx =>
                 {
@@ -547,7 +505,7 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
 
         while (true)
         {
-            // 漂亮的提示符
+
             var prompt = new TextPath(Directory.GetCurrentDirectory())
                 .RootColor(Color.Red)
                 .SeparatorColor(Color.Green)
@@ -564,21 +522,21 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
             }
             catch (OperationCanceledException)
             {
-                // Ctrl+C 在 ReadLine 中被按下
-                Console.WriteLine(); // 换行
+
+                Console.WriteLine();
                 if (ExecutionCancellation._isExecuting)
                 {
-                    // 如果在执行代码，取消执行
+
                     ExecutionCancellation.CancelExecution();
                     AnsiConsole.MarkupLine("[yellow]Execution cancelled[/]");
                 }
                 continue;
             }
 
-            // 处理 null 情况（通常是 Ctrl+C）
+
             if (command == null)
             {
-                Console.WriteLine(); // 换行
+                Console.WriteLine();
                 if (ExecutionCancellation._isExecuting)
                 {
                     ExecutionCancellation.CancelExecution();
@@ -591,7 +549,7 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
                 continue;
             }
 
-            // 处理空命令
+
             if (string.IsNullOrWhiteSpace(command))
             {
                 continue;
@@ -632,8 +590,8 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
                     {
                         FileName = "code.exe",
                         Arguments = $"--log=off \"{path}\"",
-                        UseShellExecute = true,      // 使用系统 shell 打开
-                        CreateNoWindow = true       // 显示窗口（默认就是 false）
+                        UseShellExecute = true,
+                        CreateNoWindow = true
                     });
                 });
                 if (Console.CursorTop > 0)
@@ -662,8 +620,8 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
                     {
                         FileName = "explorer.exe",
                         Arguments = $"\"{path}\"",
-                        UseShellExecute = true,      // 使用系统 shell 打开
-                        CreateNoWindow = true       // 显示窗口（默认就是 false）
+                        UseShellExecute = true,
+                        CreateNoWindow = true
                     });
                 });
                 Thread.Sleep(500);
@@ -743,7 +701,7 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
                         sourceInput = Console.ReadLine() ?? string.Empty;
                     }
                 }
-                string? outputInput = "out\\feisharp-sdk-9.0-release\\" + Path.GetFileNameWithoutExtension(sourceInput) + ".exe";
+                string? outputInput = "out\\feisharp-sdk-10.0-release\\" + Path.GetFileNameWithoutExtension(sourceInput) + ".exe";
                 await AnsiConsole.Status()
                     .StartAsync("[yellow]Building executable...[/]", async ctx =>
                     {
@@ -798,7 +756,7 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
             {
                 Console.Clear();
 
-                // 重新显示标题
+
                 AnsiConsole.Write(
                     new FigletText("FeiSharp")
                         .Color(Color.Cyan1));
@@ -818,10 +776,9 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
                             File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
                             File.WriteAllText("api.fsc", "anno(\"Create your own API functions in this file\");");
                             File.WriteAllText("README.md", $"This is the console project {name}");
-                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create console project {name} by FeiSharp Target SDK 9.0\n");
+                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create console project {name} by FeiSharp Target SDK 10.0\n");
                             File.WriteAllText(".gitignore", @"# 编译输出
-bin/
-obj/
+out/
 *.exe
 *.dll
 
@@ -843,7 +800,7 @@ Thumbs.db
                             File.WriteAllText($"{name}.feiproj", @$"{{
     ""project_name"": ""{name}"",
     ""project_main_file"": ""main_{name}.fsc"",
-    ""sdk_version"": 9.0
+    ""sdk_version"": 10.0
 }}");
                             break;
                         case "API":
@@ -852,15 +809,14 @@ Thumbs.db
                             File.WriteAllText($"{name}.feiproj", @$"{{
     ""project_name"": ""{name}"",
     ""project_main_file"": ""main_{name}.fsc"",
-    ""sdk_version"": 9.0
+    ""sdk_version"": 10.0
 }}");
                             File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction test()\nfbegin:\n    print(\"Hello, World!\");\nfend;\ntest();");
                             File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
                             File.WriteAllText("api.fsc", "anno(\"Create your own API functions in this file\");");
                             File.WriteAllText("README.md", $"This is the api project {name}");
                             File.WriteAllText(".gitignore", @"
-bin/
-obj/
+out/
 *.exe
 *.dll
 Tests/
@@ -870,7 +826,7 @@ Tests/
 .DS_Store
 Thumbs.db
 ");
-                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 9.0\n");
+                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 10.0\n");
                             File.WriteAllText($"license.txt", "Your license file, for example: MIT");
                             break;
                         case "Data":
@@ -879,14 +835,17 @@ Thumbs.db
                             File.WriteAllText($"{name}.feiproj", @$"{{
     ""project_name"": ""{name}"",
     ""project_main_file"": ""main_{name}.fsc"",
-    ""sdk_version"": 9.0
+    ""trimmed_by_dotnet"": true,
+    ""only_copy_executable"": true,
+    ""clean_build_directory"": true,
+    ""sdk_version"": ""9.5 Beta"",
+    ""contained_assembly""
 }}");
                             File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nfunction test()\nfbegin:\n    print(\"Hello, World!\");\nfend;\ntest();");
                             File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
                             File.WriteAllText("README.md", $"This is the api project {name}");
                             File.WriteAllText(".gitignore", @"
-bin/
-obj/
+out/
 *.exe
 *.dll
 Tests/
@@ -896,7 +855,7 @@ Tests/
 .DS_Store
 Thumbs.db
 ");
-                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 9.0\n");
+                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 10.0\n");
                             File.WriteAllText($"license.txt", "Your license file, for example: MIT");
                             break;
                         case "fUnitTest":
@@ -905,14 +864,13 @@ Thumbs.db
                             File.WriteAllText($"{name}.feiproj", @$"{{
     ""project_name"": ""{name}"",
     ""project_main_file"": ""main_{name}.fsc"",
-    ""sdk_version"": 9.0
+    ""sdk_version"": 10.0
 }}");
                             File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/test_content.fsc\";\nimport \"~/api.fsc\";\nfunction test()\nfbegin:\n    print(\"Hello, World!\");\nfend;\ntest();");
                             File.WriteAllText("test_content.fsc", "anno(\"Set the test content\");");
                             File.WriteAllText("README.md", $"This is the api project {name}");
                             File.WriteAllText(".gitignore", @"
-bin/
-obj/
+ouy/
 *.exe
 *.dll
 Tests/
@@ -922,7 +880,7 @@ Tests/
 .DS_Store
 Thumbs.db
 ");
-                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 9.0\n");
+                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 10.0\n");
                             File.WriteAllText($"license.txt", "Your license file, for example: MIT");
                             break;
                         default:
@@ -978,7 +936,7 @@ Thumbs.db
             {
                 if (command == "version")
                 {
-                    var versionPanel = new Panel("[yellow]FeiSharp Target SDK 9.0[/]")
+                    var versionPanel = new Panel("[yellow]FeiSharp Target SDK 10.0[/]")
                         .Header(" [cyan]Version Info[/] ")
                         .Border(BoxBorder.Rounded)
                         .BorderStyle(Style.Parse("blue"));
@@ -1031,21 +989,21 @@ Thumbs.db
                                 "FeiSharp Target SDK 7.0",
                                 "FeiSharp Target SDK 8.0",
                                 "FeiSharp Target SDK 9.0",
-                                "FeiSharp Beta Preview SDK 10.0",
+                                "FeiSharp Target SDK 10.0 Release",
                             }));
 
                     AnsiConsole.Status()
                         .Start("[yellow]Updating version...[/]", ctx =>
                         {
-                            if (version == "FeiSharp Target SDK 9.0")
+                            if (version == "FeiSharp Target SDK 10.0 Release")
                             {
-                                var successPanel = new Panel($"[red]× FeiSharp Target SDK 9.0 is current version now[/]")
+                                var successPanel = new Panel($"[red]× FeiSharp Target SDK 10.0 Release is current version now[/]")
                                     .Border(BoxBorder.Rounded)
                                     .BorderStyle(Style.Parse("red"));
                                 AnsiConsole.Write(successPanel);
                                 return;
                             }
-                            Thread.Sleep(1500); // 模拟处理时间
+                            Thread.Sleep(1500);
 
                             if (IsConnectedToInternet())
                             {
@@ -1191,7 +1149,7 @@ Thumbs.db
             }
             else
             {
-                // 执行代码时显示进度
+
                 await AnsiConsole.Status()
                     .StartAsync("[yellow]Executing code...[/]", async ctx =>
                     {
@@ -1261,12 +1219,12 @@ Thumbs.db
     public static Parser RunFeiSharpCodeWithProProcesser(string scode, Parser _parser = null)
     {
         ChangeDynamicTitle(EXEC);
-        // 设置执行状态
+
         ExecutionCancellation.SetExecuting(true);
 
         try
         {
-            // 检查是否被取消
+
             if (ExecutionCancellation.IsCancellationRequested)
             {
                 AnsiConsole.MarkupLine("[yellow]Execution cancelled[/]");
@@ -1276,7 +1234,7 @@ Thumbs.db
             global::System.String sourceCode = scode;
             sourceCode = ProProcesser(sourceCode);
 
-            // 检查是否被取消
+
             if (ExecutionCancellation.IsCancellationRequested)
             {
                 AnsiConsole.MarkupLine("[yellow]Execution cancelled during preprocessing[/]");
@@ -1287,7 +1245,7 @@ Thumbs.db
             List<Token> tokens = [];
             Token token;
 
-            // 在词法分析过程中检查取消
+
             do
             {
                 if (ExecutionCancellation.IsCancellationRequested)
@@ -1315,7 +1273,7 @@ Thumbs.db
                     parser._functions = _parser?._functions ?? new Dictionary<string, FunctionInfo>();
                 }
 
-                // 设置取消检查委托
+
                 parser.ShouldCancel = () => ExecutionCancellation.IsCancellationRequested;
                 var rule1 = new Rule("[yellow]Code Output[/]")
                 {
@@ -1323,7 +1281,7 @@ Thumbs.db
                     Justification = Justify.Center
                 };
                 AnsiConsole.Write(rule1);
-                // 执行解析
+
                 parser.ParseStatements();
 
                 return parser;
@@ -1347,7 +1305,7 @@ Thumbs.db
         }
         finally
         {
-            // 无论成功还是取消，都重置执行状态
+
             ExecutionCancellation.SetExecuting(false);
             ChangeDynamicTitle(IN_CMD);
         }

@@ -1,7 +1,5 @@
-﻿// HelpSystem.cs
 using Spectre.Console;
 using System.Text;
-
 namespace FeiSharp8._5RuntimeSdk
 {
     public static class HelpSystem
@@ -27,7 +25,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "build", "file", "version", "license" }
             },
-
             ["version"] = new CommandHelp
             {
                 Name = "version",
@@ -47,7 +44,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "help", "license" }
             },
-
             ["license"] = new CommandHelp
             {
                 Name = "license",
@@ -67,7 +63,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "copyright", "credits" }
             },
-
             ["copyright"] = new CommandHelp
             {
                 Name = "copyright",
@@ -80,7 +75,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "license", "credits" }
             },
-
             ["credits"] = new CommandHelp
             {
                 Name = "credits",
@@ -93,7 +87,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "copyright", "license" }
             },
-
             ["run"] = new CommandHelp
             {
                 Name = "run",
@@ -108,7 +101,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "file", "help" }
             },
-
             ["file"] = new CommandHelp
             {
                 Name = "file",
@@ -124,7 +116,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "run", "build", "help" }
             },
-
             ["build"] = new CommandHelp
             {
                 Name = "build",
@@ -146,7 +137,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "file", "run", "create", "help" }
             },
-
             ["cd"] = new CommandHelp
             {
                 Name = "cd",
@@ -166,7 +156,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "pwd", "help" }
             },
-
             ["pwd"] = new CommandHelp
             {
                 Name = "pwd",
@@ -179,7 +168,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "cd", "help" }
             },
-
             ["cls"] = new CommandHelp
             {
                 Name = "cls",
@@ -194,7 +182,6 @@ namespace FeiSharp8._5RuntimeSdk
                 Aliases = new[] { "clear" },
                 SeeAlso = new[] { "resetColor", "help" }
             },
-
             ["clear"] = new CommandHelp
             {
                 Name = "clear",
@@ -207,7 +194,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "cls", "help" }
             },
-
             ["feedback"] = new CommandHelp
             {
                 Name = "feedback",
@@ -221,7 +207,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "help", "version" }
             },
-
             ["color"] = new CommandHelp
             {
                 Name = "color",
@@ -234,7 +219,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "resetColor", "help" }
             },
-
             ["resetColor"] = new CommandHelp
             {
                 Name = "resetColor",
@@ -247,7 +231,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "color", "help" }
             },
-
             ["base"] = new CommandHelp
             {
                 Name = "base",
@@ -272,7 +255,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "run", "file" }
             },
-
             ["ui"] = new CommandHelp
             {
                 Name = "ui",
@@ -286,7 +268,6 @@ namespace FeiSharp8._5RuntimeSdk
                 },
                 SeeAlso = new[] { "run", "file", "help" }
             },
-
             ["exit"] = new CommandHelp
             {
                 Name = "exit",
@@ -300,39 +281,29 @@ namespace FeiSharp8._5RuntimeSdk
                 SeeAlso = new[] { "help" }
             }
         };
-
         public static async Task ShowInteractiveHelp(string specificCommand = null)
         {
             Console.CursorVisible = false;
-
             if (!string.IsNullOrEmpty(specificCommand) && _commands.ContainsKey(specificCommand))
             {
                 await ShowCommandHelp(specificCommand);
                 return;
             }
-
             await ShowHelpBrowser();
-
             Console.CursorVisible = true;
         }
-
         private static async Task ShowHelpBrowser()
         {
             var selectedIndex = 0;
             var searchMode = false;
             var searchQuery = "";
             var filteredCommands = _commands.Values.OrderBy(c => c.Name).ToList();
-
             while (true)
             {
                 Console.Clear();
-
-                // 标题
                 AnsiConsole.Write(
                     new FigletText("FeiSharp Help")
                         .Color(Color.Cyan1));
-
-                // 搜索栏
                 if (searchMode)
                 {
                     AnsiConsole.Markup($"[yellow]Search: [/][green]{searchQuery}[/][yellow]_[/]");
@@ -343,15 +314,11 @@ namespace FeiSharp8._5RuntimeSdk
                     AnsiConsole.Markup("[grey]Press [/][yellow]/[/][grey] to search, [/][yellow]↑/↓[/][grey] to navigate, [/][yellow]Enter[/][grey] to view, [/][yellow]q[/][grey] to quit[/]");
                     AnsiConsole.WriteLine();
                 }
-
                 AnsiConsole.WriteLine();
-
-                // 创建命令列表
                 var table = new Table()
                     .Border(TableBorder.Rounded)
                     .AddColumn(new TableColumn("[yellow]Command[/]").Centered())
                     .AddColumn(new TableColumn("[yellow]Description[/]"));
-
                 for (int i = 0; i < filteredCommands.Count; i++)
                 {
                     var cmd = filteredCommands[i];
@@ -359,22 +326,15 @@ namespace FeiSharp8._5RuntimeSdk
                     var commandName = i == selectedIndex
                         ? $"[bold green]{prefix}{cmd.Name}[/]"
                         : $"[white]{prefix}{cmd.Name}[/]";
-
                     table.AddRow(
                         commandName,
                         $"[grey]{cmd.Summary}[/]"
                     );
                 }
-
                 AnsiConsole.Write(table);
-
-                // 底部提示
                 AnsiConsole.WriteLine();
                 AnsiConsole.MarkupLine($"[grey]Showing {filteredCommands.Count} commands[/]");
-
-                // 处理键盘输入
                 var key = Console.ReadKey(true);
-
                 if (searchMode)
                 {
                     if (key.Key == ConsoleKey.Enter)
@@ -415,64 +375,47 @@ namespace FeiSharp8._5RuntimeSdk
                         case ConsoleKey.UpArrow:
                             selectedIndex = Math.Max(0, selectedIndex - 1);
                             break;
-
                         case ConsoleKey.DownArrow:
                             selectedIndex = Math.Min(filteredCommands.Count - 1, selectedIndex + 1);
                             break;
-
                         case ConsoleKey.Enter:
                             if (filteredCommands.Count > 0)
                             {
                                 await ShowCommandHelp(filteredCommands[selectedIndex].Name);
                             }
                             break;
-
-                        case ConsoleKey.Oem2: // '/' key
+                        case ConsoleKey.Oem2:
                         case ConsoleKey.Divide:
                             searchMode = true;
                             searchQuery = "";
                             break;
-
                         case ConsoleKey.Q:
                             return;
                     }
                 }
             }
         }
-
         private static async Task ShowCommandHelp(string commandName)
         {
             if (!_commands.ContainsKey(commandName))
                 return;
-
             var cmd = _commands[commandName];
             var currentPage = 0;
-
             while (true)
             {
                 Console.Clear();
-
-                // 标题
                 AnsiConsole.Write(
                     new FigletText(cmd.Name)
                         .Color(Color.Green));
-
-                // 命令摘要
                 AnsiConsole.MarkupLine($"[yellow]NAME[/]");
                 AnsiConsole.MarkupLine($"    [green]{cmd.Name}[/] - {cmd.Summary}");
                 AnsiConsole.WriteLine();
-
-                // 用法
                 AnsiConsole.MarkupLine($"[yellow]SYNOPSIS[/]");
                 AnsiConsole.MarkupLine($"    [cyan]{cmd.Usage.EscapeMarkup()}[/]");
                 AnsiConsole.WriteLine();
-
-                // 描述
                 AnsiConsole.MarkupLine($"[yellow]DESCRIPTION[/]");
                 AnsiConsole.MarkupLine($"    {cmd.Description}");
                 AnsiConsole.WriteLine();
-
-                // 选项（如果有）
                 if (cmd.Options?.Any() == true)
                 {
                     AnsiConsole.MarkupLine($"[yellow]OPTIONS[/]");
@@ -482,8 +425,6 @@ namespace FeiSharp8._5RuntimeSdk
                     }
                     AnsiConsole.WriteLine();
                 }
-
-                // 示例
                 if (cmd.Examples?.Any() == true)
                 {
                     AnsiConsole.MarkupLine($"[yellow]EXAMPLES[/]");
@@ -493,16 +434,12 @@ namespace FeiSharp8._5RuntimeSdk
                     }
                     AnsiConsole.WriteLine();
                 }
-
-                // 别名（如果有）
                 if (cmd.Aliases?.Any() == true)
                 {
                     AnsiConsole.MarkupLine($"[yellow]ALIASES[/]");
                     AnsiConsole.MarkupLine($"    [green]{string.Join(", ", cmd.Aliases)}[/]");
                     AnsiConsole.WriteLine();
                 }
-
-                // 相关命令
                 if (cmd.SeeAlso?.Any() == true)
                 {
                     AnsiConsole.MarkupLine($"[yellow]SEE ALSO[/]");
@@ -510,25 +447,19 @@ namespace FeiSharp8._5RuntimeSdk
                     AnsiConsole.MarkupLine($"    {seeAlsoLinks}");
                     AnsiConsole.WriteLine();
                 }
-
-                // 底部导航
                 AnsiConsole.MarkupLine("[grey]Press [/][yellow]q[/][grey] to return to help browser, [/][yellow]Enter[/][grey] to view related commands[/]");
-
                 var key = Console.ReadKey(true);
-
                 if (key.Key == ConsoleKey.Q)
                 {
                     break;
                 }
                 else if (key.Key == ConsoleKey.Enter && cmd.SeeAlso?.Any() == true)
                 {
-                    // 显示相关命令选择菜单
                     var relatedCommand = AnsiConsole.Prompt(
                         new SelectionPrompt<string>()
                             .Title("[cyan]Select a related command:[/]")
                             .PageSize(10)
                             .AddChoices(cmd.SeeAlso));
-
                     if (_commands.ContainsKey(relatedCommand))
                     {
                         cmd = _commands[relatedCommand];
@@ -537,7 +468,6 @@ namespace FeiSharp8._5RuntimeSdk
             }
         }
     }
-
     public class CommandHelp
     {
         public string Name { get; set; }

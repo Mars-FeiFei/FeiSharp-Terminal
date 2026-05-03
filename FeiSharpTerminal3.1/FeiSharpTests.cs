@@ -1,9 +1,7 @@
-﻿using FeiSharpStudio;
+using FeiSharpStudio;
 using Spectre.Console;
 using System.Diagnostics;
-
 namespace FeiSharpTerminal3._1.Tests;
-
 public static class FeiSharpTests
 {
     private static int _passedTests = 0;
@@ -198,13 +196,13 @@ oldpow(""x"", 2, 3);",
         var passPercentage = total > 0 ? (double)_passedTests / total * 100 : 0;
         var failPercentage = total > 0 ? (double)_failedTests / total * 100 : 0;
 
-        // 创建一个堆叠条形图来显示比例
+
         var chart = new BarChart()
             .Width(60)
             .Label("[yellow]Distribution Of Test Results[/]")
             .CenterLabel();
 
-        // 添加通过和失败作为两个独立的条，或者使用堆叠效果
+
         if (_passedTests > 0)
         {
             chart.AddItem("Passed", _passedTests, Color.Green);

@@ -1,4 +1,4 @@
-﻿using FeiSharpTerminal3._1;
+using FeiSharpTerminal3._1;
 namespace FeiSharpStudio;
 public class CodeError
 {
@@ -40,13 +40,11 @@ public class Lexer
         [')'] = new(TokenTypes.Punctuation, ")"),
         ['$'] = new(TokenTypes.Operator, "$"),
     };
-
     public Lexer(string source)
     {
         _source = source;
         _index = 0;
     }
-
     public Token NextToken()
     {
         while (_index < _source.Length)
@@ -83,27 +81,22 @@ public class Lexer
         }
         return new Token(TokenTypes.EndOfFile, "");
     }
-
     private Token ReadStringToken()
     {
         int start = ++_index;
-
         while (_index < _source.Length && _source[_index] != '"')
         {
             _index++;
         }
-
         if (_index >= _source.Length)
         {
             CodeError.Throw("FS1002", "Unterminated string literal");
             return new Token(TokenTypes.EndOfFile, "");
         }
-
         string value = _source[start.._index];
         _index++;
         return new Token(TokenTypes.String, value);
     }
-
     private Token ReadCharacterToken()
     {
         _index++;
@@ -111,17 +104,14 @@ public class Lexer
         {
             throw new FeiSharpTerminal3._1.ExceptionThrow.Exception(new(), 1, "Unterminated character literal.", "FS1001");
         }
-
         char value = _source[_index++];
         if (_index >= _source.Length || _source[_index] != '\'')
         {
             throw new FeiSharpTerminal3._1.ExceptionThrow.Exception(new(), 1, "Char type constants cannot have multiple characters. If you want to store multiple characters, please change them to String type constants.", "FS1001");
         }
-
         _index++;
         return new Token(TokenTypes.Character, value.ToString());
     }
-
     private Token ReadNumberToken()
     {
         int start = _index;
@@ -129,10 +119,8 @@ public class Lexer
         {
             _index++;
         }
-
         return new Token(TokenTypes.Number, _source[start.._index]);
     }
-
     private Token ReadIdentifierOrKeywordToken()
     {
         int start = _index;
@@ -140,13 +128,11 @@ public class Lexer
         {
             _index++;
         }
-
         string identifier = _source[start.._index];
         if (FeiSharpKeywords.KeywordMap.TryGetValue(identifier, out Token keywordToken))
         {
             return keywordToken;
         }
-
         return new Token(TokenTypes.Identifier, identifier);
     }
 }

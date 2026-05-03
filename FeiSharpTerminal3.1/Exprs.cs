@@ -1,9 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-
 namespace FeiSharpStudio
 {
     public abstract class Expr { }
@@ -20,14 +19,11 @@ namespace FeiSharpStudio
         public object Value { get; set; }
         public ValueExpr(object value) { Value = value; }
     }
-
     public class StringExpr : Expr
     {
         public string Value { get; set; }
-
         public StringExpr(string value) { Value = value; }
     }
-
     public class VariableExpr : Expr
     {
         public string Name { get; }
@@ -45,5 +41,4 @@ namespace FeiSharpStudio
             Right = right;
         }
     }
-
 }

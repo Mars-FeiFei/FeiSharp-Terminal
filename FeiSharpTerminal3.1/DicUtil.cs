@@ -1,10 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-
 namespace FeiSharpTerminal3._1
 {
     static class DicUtil
@@ -17,7 +16,7 @@ namespace FeiSharpTerminal3._1
             }
             catch
             {
-                dictionary[key] = value;    
+                dictionary[key] = value;
             }
         }
     }
