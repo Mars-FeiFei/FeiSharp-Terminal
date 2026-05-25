@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -15,11 +15,11 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <LangVersion>preview</LangVersion>
-    <ApplicationIcon>deepseek_svg_20260502_06726a.ico</ApplicationIcon>
+    <ApplicationIcon>deepseek_svg_20260523_e596df.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="deepseek_svg_20260502_06726a.ico" />
+    <Content Include="deepseek_svg_20260523_e596df.ico" />
   </ItemGroup>
 
   <ItemGroup>

@@ -411,9 +411,17 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
         Console.OutputEncoding = Encoding.Unicode;
         Console.InputEncoding = Encoding.Unicode;
         ExecutionCancellation.Initialize();
-        Directory.CreateDirectory(FEISHARP_IMPORT_PATH);
-        if(Environment.GetEnvironmentVariable("FEISHARP_IMPORT_PATH", EnvironmentVariableTarget.User) == null)
+        if (Environment.GetEnvironmentVariable("FEISHARP_IMPORT_PATH", EnvironmentVariableTarget.User) == null)
             Environment.SetEnvironmentVariable("FEISHARP_IMPORT_PATH", FEISHARP_IMPORT_PATH, EnvironmentVariableTarget.User);
+        Directory.CreateDirectory(FEISHARP_IMPORT_PATH);
+        if (!File.Exists(Path.Combine(FEISHARP_IMPORT_PATH, "$prelude.fsc")))
+        {
+            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "prelude.fsc"), "function pow(afghj,beyua)\r\nfbegin:\r\n    oldpow(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction sin(afghj,beyua)\r\nfbegin:\r\n    oldsin(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction cos(afghj,beyua)\r\nfbegin:\r\n    oldcos(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction tan(afghj,beyua)\r\nfbegin:\r\n    oldtan(\"casdf\", afghj, beyuab);\r\n    return casdf;\r\nfend;\r\nfunction asin(afghj,beyua)\r\nfbegin:\r\n    oldasin(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction acos(afghj,beyua)\r\nfbegin:\r\n    oldacos(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction atan(afghj,beyua)\r\nfbegin:\r\n    oldatan(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction sqrt(afghj,beyua)\r\nfbegin:\r\n    oldsqrt(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction abs(afghj,beyua)\r\nfbegin:\r\n    oldabs(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction strfromindex(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldstrfromindex(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction strindexof(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldindexof(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction strreplace(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldstrreplafasfasfwfdsafeweeasadce(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad, bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction strlen(afasfasfwfdsafeweeasad)\r\nfbegin:\r\n    oldstrlen(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction substr(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldsubstr(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction getcurrentfilepath()\r\nfbegin:\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfilepath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\nfend;\r\nfunction getcurrentfolderpath()\r\nfbegin:\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfolderpath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\nfend;\r\nfunction mappath(vpath)\r\nfbegin:\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldmappath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\", vpath);\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\nfend;\r\nvar sign = \"{#,:,&,|,.,],[,!,<,>,=,^,/,*,-,+,;,(,),$,},//\";\r\nvar runProg = \"feisharp <src-code-file>\";\r\nvar commonSyntax = \"<code>;\\n<function>(args);\\n<function(no args)>;\\nclass.field;\";\r\nvar specSyntax = \"<keyword(def a struct, such as if, while etc.)>;<keyword-first-letter>begin:<code><keyword-first-letter>end;\";");
+            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "math.fsc"), "function pow(afghj,beyua)\r\nfbegin:\r\n    oldpow(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction sin(afghj,beyua)\r\nfbegin:\r\n    oldsin(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction cos(afghj,beyua)\r\nfbegin:\r\n    oldcos(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction tan(afghj,beyua)\r\nfbegin:\r\n    oldtan(\"casdf\", afghj, beyuab);\r\n    return casdf;\r\nfend;\r\nfunction asin(afghj,beyua)\r\nfbegin:\r\n    oldasin(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction acos(afghj,beyua)\r\nfbegin:\r\n    oldacos(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction atan(afghj,beyua)\r\nfbegin:\r\n    oldatan(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction sqrt(afghj,beyua)\r\nfbegin:\r\n    oldsqrt(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction abs(afghj,beyua)\r\nfbegin:\r\n    oldabs(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;");
+            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "io_extend.fsc"), "function getcurrentfilepath()\r\nfbegin:\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfilepath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\nfend;\r\nfunction getcurrentfolderpath()\r\nfbegin:\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfolderpath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\nfend;\r\nfunction mappath(vpath)\r\nfbegin:\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldmappath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\", vpath);\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\nfend;");
+            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "text.fsc"), "function strfromindex(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldstrfromindex(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction strindexof(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldindexof(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction strreplace(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldstrreplafasfasfwfdsafeweeasadce(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad, bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction strlen(afasfasfwfdsafeweeasad)\r\nfbegin:\r\n    oldstrlen(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction substr(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldsubstr(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;");
+            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "support.fsc"), "var sign = \"{#,:,&,|,.,],[,!,<,>,=,^,/,*,-,+,;,(,),$,},//\";\r\nvar runProg = \"feisharp <src-code-file>\";");
+        }
         if (args.Length == 0)
             FeiSharpTests.RunAllTests();
         TryConfigureConsole(() => Console.CursorSize = 25);
@@ -447,7 +455,7 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
 
         #endregion
 
-        if (args.Length > 0 && string.Equals(args[0], "build", StringComparison.OrdinalIgnoreCase))
+        if (args.Length > 0 && string.Equals(args[0], "--build", StringComparison.OrdinalIgnoreCase))
         {
             if (args.Length < 2)
             {
@@ -468,6 +476,7 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
                             .Border(BoxBorder.Rounded)
                             .BorderStyle(Style.Parse("green"));
                         AnsiConsole.Write(successPanel);
+                        Process.Start(builtExePath);
                     }
                     else
                     {
@@ -1116,14 +1125,10 @@ Thumbs.db
                     "  [green]- Yolanda Yang[/]\n" +
                     "  [green]- Dean Liu[/]\n" +
                     "  [green]- Savannah Yang[/]\n" +
-                    "  [green]- thinkgeo.com[/]\n" +
                     "  [green]- github.com[/]\n" +
-                    "  [green]- doubao.com[/]\n" +
-                    "  [green]- deepseek.com[/]\n" +
                     "  [green]- Git[/]\n" +
                     "  [green]- Visual Studio[/]\n" +
                     "  [green]- Visual Studio Code[/]\n" +
-                    "  [green]- Trae AI[/]\n\n" +
                     "[grey]...and a cast of thousands for supporting FeiSharp development.[/]")
                     .Header(" [cyan]Credits[/] ")
                     .Border(BoxBorder.Rounded)
@@ -1131,14 +1136,6 @@ Thumbs.db
                     .Expand();
 
                 AnsiConsole.Write(credits);
-
-                var specCredit = new Panel("[blue]Special thanks Savannah Yang for her important support").Header(" [cyan]Special Thanks[/] ")
-                    .Border(BoxBorder.Rounded)
-                    .BorderStyle(Style.Parse("blue"))
-                    .Expand();
-
-                AnsiConsole.Write(specCredit);
-
             }
             else if (command == "help" || command.StartsWith("help "))
             {
