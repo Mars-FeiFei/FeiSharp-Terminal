@@ -8,6 +8,7 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 namespace FeiSharp8._5RuntimeSdk;
 public class Program
 {
@@ -416,11 +417,13 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
         Directory.CreateDirectory(FEISHARP_IMPORT_PATH);
         if (!File.Exists(Path.Combine(FEISHARP_IMPORT_PATH, "$prelude.fsc")))
         {
-            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "prelude.fsc"), "function pow(afghj,beyua)\r\nfbegin:\r\n    oldpow(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction sin(afghj,beyua)\r\nfbegin:\r\n    oldsin(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction cos(afghj,beyua)\r\nfbegin:\r\n    oldcos(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction tan(afghj,beyua)\r\nfbegin:\r\n    oldtan(\"casdf\", afghj, beyuab);\r\n    return casdf;\r\nfend;\r\nfunction asin(afghj,beyua)\r\nfbegin:\r\n    oldasin(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction acos(afghj,beyua)\r\nfbegin:\r\n    oldacos(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction atan(afghj,beyua)\r\nfbegin:\r\n    oldatan(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction sqrt(afghj,beyua)\r\nfbegin:\r\n    oldsqrt(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction abs(afghj,beyua)\r\nfbegin:\r\n    oldabs(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction strfromindex(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldstrfromindex(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction strindexof(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldindexof(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction strreplace(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldstrreplafasfasfwfdsafeweeasadce(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad, bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction strlen(afasfasfwfdsafeweeasad)\r\nfbegin:\r\n    oldstrlen(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction substr(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldsubstr(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction getcurrentfilepath()\r\nfbegin:\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfilepath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\nfend;\r\nfunction getcurrentfolderpath()\r\nfbegin:\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfolderpath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\nfend;\r\nfunction mappath(vpath)\r\nfbegin:\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldmappath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\", vpath);\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\nfend;\r\nvar sign = \"{#,:,&,|,.,],[,!,<,>,=,^,/,*,-,+,;,(,),$,},//\";\r\nvar runProg = \"feisharp <src-code-file>\";\r\nvar commonSyntax = \"<code>;\\n<function>(args);\\n<function(no args)>;\\nclass.field;\";\r\nvar specSyntax = \"<keyword(def a struct, such as if, while etc.)>;<keyword-first-letter>begin:<code><keyword-first-letter>end;\";");
-            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "math.fsc"), "function pow(afghj,beyua)\r\nfbegin:\r\n    oldpow(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction sin(afghj,beyua)\r\nfbegin:\r\n    oldsin(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction cos(afghj,beyua)\r\nfbegin:\r\n    oldcos(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction tan(afghj,beyua)\r\nfbegin:\r\n    oldtan(\"casdf\", afghj, beyuab);\r\n    return casdf;\r\nfend;\r\nfunction asin(afghj,beyua)\r\nfbegin:\r\n    oldasin(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction acos(afghj,beyua)\r\nfbegin:\r\n    oldacos(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction atan(afghj,beyua)\r\nfbegin:\r\n    oldatan(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction sqrt(afghj,beyua)\r\nfbegin:\r\n    oldsqrt(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;\r\nfunction abs(afghj,beyua)\r\nfbegin:\r\n    oldabs(\"casdf\", afghj, beyua);\r\n    return casdf;\r\nfend;");
-            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "io_extend.fsc"), "function getcurrentfilepath()\r\nfbegin:\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfilepath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\nfend;\r\nfunction getcurrentfolderpath()\r\nfbegin:\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfolderpath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\nfend;\r\nfunction mappath(vpath)\r\nfbegin:\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldmappath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\", vpath);\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\nfend;");
-            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "text.fsc"), "function strfromindex(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldstrfromindex(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction strindexof(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldindexof(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction strreplace(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldstrreplafasfasfwfdsafeweeasadce(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad, bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction strlen(afasfasfwfdsafeweeasad)\r\nfbegin:\r\n    oldstrlen(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad);\r\n    return ccasfasgfagwgeegta;\r\nfend;\r\nfunction substr(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\nfbegin:\r\n    oldsubstr(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\nfend;");
+            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "prelude.fsc"), "function pow(afghj,beyua)\r\n{\r\n    oldpow(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction sin(afghj,beyua)\r\n{\r\n    oldsin(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction cos(afghj,beyua)\r\n{\r\n    oldcos(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction tan(afghj,beyua)\r\n{\r\n    oldtan(\"casdf\", afghj, beyuab);\r\n    return casdf;\r\n}\r\nfunction asin(afghj,beyua)\r\n{\r\n    oldasin(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction acos(afghj,beyua)\r\n{\r\n    oldacos(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction atan(afghj,beyua)\r\n{\r\n    oldatan(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction sqrt(afghj,beyua)\r\n{\r\n    oldsqrt(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction abs(afghj,beyua)\r\n{\r\n    oldabs(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction strfromindex(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\n{\r\n    oldstrfromindex(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\n}\r\nfunction strindexof(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\n{\r\n    oldindexof(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\n}\r\nfunction strreplace(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\n{\r\n    oldstrreplafasfasfwfdsafeweeasadce(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad, bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\n}\r\nfunction strlen(afasfasfwfdsafeweeasad)\r\n{\r\n    oldstrlen(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad);\r\n    return ccasfasgfagwgeegta;\r\n}\r\nfunction substr(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\n{\r\n    oldsubstr(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\n}\r\nfunction getcurrentfilepath()\r\n{\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfilepath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\n}\r\nfunction getcurrentfolderpath()\r\n{\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfolderpath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\n}\r\nfunction mappath(vpath)\r\n{\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldmappath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\", vpath);\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\n}\r\nvar sign = \"{#,:,&,|,.,],[,!,<,>,=,^,/,*,-,+,;,(,),$,},//\";\r\nvar runProg = \"feisharp <src-code-file>\";\r\nvar commonSyntax = \"<code>;\\n<function>(args);\\n<function(no args)>;\\nclass.field;\";\r\nvar specSyntax = \"<keyword(def a struct, such as if, while etc.)>;<keyword-first-letter>begin:<code><keyword-first-letter>end;\";");
+            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "math.fsc"), "function pow(afghj,beyua)\r\n{\r\n    oldpow(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction sin(afghj,beyua)\r\n{\r\n    oldsin(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction cos(afghj,beyua)\r\n{\r\n    oldcos(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction tan(afghj,beyua)\r\n{\r\n    oldtan(\"casdf\", afghj, beyuab);\r\n    return casdf;\r\n}\r\nfunction asin(afghj,beyua)\r\n{\r\n    oldasin(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction acos(afghj,beyua)\r\n{\r\n    oldacos(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction atan(afghj,beyua)\r\n{\r\n    oldatan(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction sqrt(afghj,beyua)\r\n{\r\n    oldsqrt(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}\r\nfunction abs(afghj,beyua)\r\n{\r\n    oldabs(\"casdf\", afghj, beyua);\r\n    return casdf;\r\n}");
+            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "io_extend.fsc"), "function getcurrentfilepath()\r\n{\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfilepath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\n}\r\nfunction getcurrentfolderpath()\r\n{\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfolderpath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\n}\r\nfunction mappath(vpath)\r\n{\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldmappath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\", vpath);\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\n}");
+            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "text.fsc"), "function strfromindex(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\n{\r\n    oldstrfromindex(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\n}\r\nfunction strindexof(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\n{\r\n    oldindexof(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\n}\r\nfunction strreplace(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\n{\r\n    oldstrreplafasfasfwfdsafeweeasadce(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad, bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\n}\r\nfunction strlen(afasfasfwfdsafeweeasad)\r\n{\r\n    oldstrlen(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad);\r\n    return ccasfasgfagwgeegta;\r\n}\r\nfunction substr(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\n{\r\n    oldsubstr(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\n}");
             File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "support.fsc"), "var sign = \"{#,:,&,|,.,],[,!,<,>,=,^,/,*,-,+,;,(,),$,},//\";\r\nvar runProg = \"feisharp <src-code-file>\";");
+            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "support.fsc"), "");
+
         }
         if (args.Length == 0)
             FeiSharpTests.RunAllTests();
@@ -511,7 +514,7 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
             _applicationPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             return;
         }
-
+        FeiSharpProgramData.main_function_run = true;
         while (true)
         {
 
@@ -780,28 +783,19 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
                         case "Console":
                             Directory.CreateDirectory(name);
                             Directory.SetCurrentDirectory(name);
-                            File.WriteAllText($"test_{name}1.fsc", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction test()\nfbegin:\n    print(\"Hello, World!\");\nfend;\ntest();");
-                            File.WriteAllText($"main_{name}.fsc", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction main()\nfbegin:\n    printnl(\"Hello, World!\");\nfend;\nmain();");
+                            File.WriteAllText($"test_{name}1.fsc", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction test()\n{\n    print(\"Hello, World!\");\n}\n");
+                            File.WriteAllText($"main_{name}.fsc", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction main()\n{\n    printnl(\"Hello, World!\");\n}\n");
                             File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
                             File.WriteAllText("api.fsc", "anno(\"Create your own API functions in this file\");");
                             File.WriteAllText("README.md", $"This is the console project {name}");
                             File.WriteAllText($"{name}.log", $"{DateTime.Now} Create console project {name} by FeiSharp Target SDK 10.0\n");
-                            File.WriteAllText(".gitignore", @"# 编译输出
+                            File.WriteAllText(".gitignore", @"
 out/
 *.exe
 *.dll
-
-# 测试文件夹
-Tests/
-
-# 日志文件
 *.log
-
-# IDE 配置
 .vs/
 .vscode/
-
-# 系统文件
 .DS_Store
 Thumbs.db
 ");
@@ -809,7 +803,10 @@ Thumbs.db
                             File.WriteAllText($"{name}.feiproj", @$"{{
     ""project_name"": ""{name}"",
     ""project_main_file"": ""main_{name}.fsc"",
-    ""sdk_version"": 10.0
+    ""sdk_version"": 10.0,
+    ""trimmed_by_dotnet"": false, 
+    ""clean_build_directory"": true,
+    ""target_platform"": ""win-x64""
 }}");
                             break;
                         case "API":
@@ -818,9 +815,12 @@ Thumbs.db
                             File.WriteAllText($"{name}.feiproj", @$"{{
     ""project_name"": ""{name}"",
     ""project_main_file"": ""main_{name}.fsc"",
-    ""sdk_version"": 10.0
+    ""sdk_version"": 10.0,
+    ""trimmed_by_dotnet"": false, 
+    ""clean_build_directory"": true,
+    ""target_platform"": ""win-x64""
 }}");
-                            File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction test()\nfbegin:\n    print(\"Hello, World!\");\nfend;\ntest();");
+                            File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction test()\n{\n    print(\"Hello, World!\");\n}\ntest();");
                             File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
                             File.WriteAllText("api.fsc", "anno(\"Create your own API functions in this file\");");
                             File.WriteAllText("README.md", $"This is the api project {name}");
@@ -828,7 +828,6 @@ Thumbs.db
 out/
 *.exe
 *.dll
-Tests/
 *.log
 .vs/
 .vscode/
@@ -844,20 +843,18 @@ Thumbs.db
                             File.WriteAllText($"{name}.feiproj", @$"{{
     ""project_name"": ""{name}"",
     ""project_main_file"": ""main_{name}.fsc"",
-    ""trimmed_by_dotnet"": true,
-    ""only_copy_executable"": true,
+    ""sdk_version"": 10.0,
+    ""trimmed_by_dotnet"": false, 
     ""clean_build_directory"": true,
-    ""sdk_version"": ""9.5 Beta"",
-    ""contained_assembly""
+    ""target_platform"": ""win-x64""
 }}");
-                            File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nfunction test()\nfbegin:\n    print(\"Hello, World!\");\nfend;\ntest();");
+                            File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nfunction test()\n{\n    print(\"Hello, World!\");\n}\ntest();");
                             File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
                             File.WriteAllText("README.md", $"This is the api project {name}");
                             File.WriteAllText(".gitignore", @"
 out/
 *.exe
 *.dll
-Tests/
 *.log
 .vs/
 .vscode/
@@ -873,16 +870,18 @@ Thumbs.db
                             File.WriteAllText($"{name}.feiproj", @$"{{
     ""project_name"": ""{name}"",
     ""project_main_file"": ""main_{name}.fsc"",
-    ""sdk_version"": 10.0
+    ""sdk_version"": 10.0,
+    ""trimmed_by_dotnet"": false, 
+    ""clean_build_directory"": true,
+    ""target_platform"": ""win-x64""
 }}");
-                            File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/test_content.fsc\";\nimport \"~/api.fsc\";\nfunction test()\nfbegin:\n    print(\"Hello, World!\");\nfend;\ntest();");
+                            File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/test_content.fsc\";\nimport \"~/api.fsc\";\nfunction test()\n{\n    print(\"Hello, World!\");\n}\ntest();");
                             File.WriteAllText("test_content.fsc", "anno(\"Set the test content\");");
                             File.WriteAllText("README.md", $"This is the api project {name}");
                             File.WriteAllText(".gitignore", @"
 ouy/
 *.exe
 *.dll
-Tests/
 *.log
 .vs/
 .vscode/
@@ -893,7 +892,7 @@ Thumbs.db
                             File.WriteAllText($"license.txt", "Your license file, for example: MIT");
                             break;
                         default:
-                            var errorPanel = new Panel("[red]✗ The type isn't correct/]")
+                            var errorPanel = new Panel("[red]✗ The type isn't correct[/]")
                                     .Border(BoxBorder.Rounded)
                                     .BorderStyle(Style.Parse("red"));
                             AnsiConsole.Write(errorPanel);
@@ -1067,6 +1066,20 @@ Thumbs.db
                 Console.ForegroundColor = color;
                 AnsiConsole.MarkupLine($"[green]Color changed to {color}[/]");
             }
+            else if (command.StartsWith("disable"))
+            {
+                if(command.Split(' ')[1] == "main_function_run")
+                {
+                    FeiSharpProgramData.main_function_run = false;
+                }
+            }
+            else if (command.StartsWith("enable"))
+            {
+                if (command.Split(' ')[1] == "main_function_run")
+                {
+                    FeiSharpProgramData.main_function_run = true;
+                }
+            }
             else if (command.StartsWith("license "))
             {
                 global::System.String arg1 = command.Split(' ')[1];
@@ -1171,13 +1184,32 @@ Thumbs.db
             return false;
         }
     }
-
+    public static string RemoveCommentsSafe(string input)
+    {
+        string pattern = @"(""(?:[^""\\] |\\.) * "") | (//.*?$|/\*.*?\*/)";
+        string result = Regex.Replace(input, pattern, match =>
+        {
+            if (match.Groups[1].Success)
+                return match.Value;
+            return "";
+        }, RegexOptions.Multiline | RegexOptions.Singleline);
+        return result;
+    }
     public static string ProProcesser(string scode)
     {
+        scode = RemoveCommentsSafe(scode);
+        if(scode.Contains("function main(") && FeiSharpProgramData.main_function_run)
+        {
+            AnsiConsole.MarkupLine("[yellow]Warning: The code includes 'main' function, we will run it automatically, because 'main_function_run' feature is enabled, you can disable it in .feiproj file[/]");
+            AnsiConsole.MarkupLine("[yellow]Tips: If you run code directly in terminal, you can execute the command 'disable main_function_run'[/]");
+            AnsiConsole.MarkupLine("[yellow]And we don't suggest you to write another code in the outside of 'main' function[/]");
+            scode += "main();";
+        }
         var lines = scode.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries); ;
         for (int i = 0; i < lines.Length; i++)
         {
             string? item = lines[i].Trim();
+            
             if (item.StartsWith('i'))
             {
                 var line = item[1..];
@@ -1241,8 +1273,6 @@ Thumbs.db
             Lexer lexer = new(sourceCode);
             List<Token> tokens = [];
             Token token;
-
-
             do
             {
                 if (ExecutionCancellation.IsCancellationRequested)
@@ -1304,6 +1334,7 @@ Thumbs.db
         {
 
             ExecutionCancellation.SetExecuting(false);
+            Console.WriteLine();
             ChangeDynamicTitle(IN_CMD);
         }
     }

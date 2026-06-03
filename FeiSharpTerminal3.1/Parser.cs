@@ -1,13 +1,11 @@
-using FeiSharp8._5RuntimeSdk;
+﻿using FeiSharp8._5RuntimeSdk;
 using FeiSharpStudio.ClassInstance;
 using FeiSharpStudio.UUID;
 using FeiSharpTerminal3._1;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Linq.Expressions;
+using System.Linq;
 using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.RegularExpressions;
 using Exception = FeiSharpTerminal3._1.ExceptionThrow.Exception;
 namespace FeiSharpStudio
@@ -47,7 +45,6 @@ namespace FeiSharpStudio
             _current = 0;
             _variables.NewAdd("true", true);
             _variables.NewAdd("false", false);
-            _variables.NewAdd("null", null);
             _variables.NewAdd("positiveInf", double.PositiveInfinity);
             _variables.NewAdd("negativeInf", double.NegativeInfinity);
             _variables.NewAdd("buildVersion", "8.0");
@@ -72,6 +69,15 @@ namespace FeiSharpStudio
             {
                 do
                 {
+                    if (IsAtEnd())
+                    {
+                        break;
+                    }
+                    if (Peek().Type == TokenTypes.Punctuation && Peek().Value == ";")
+                    {
+                        Advance();
+                        continue;
+                    }
                     statementCount++;
                     if (statementCount % CancelCheckInterval == 0)
                     {
@@ -371,7 +377,16 @@ namespace FeiSharpStudio
                     else
                     {
                         if (_classInfos.ContainsKey(Peek().Value))
-                            Runclass(Peek().Value);
+                        {
+                            string className = Peek().Value;
+                            Advance();
+                            Runclass(className);
+                        }
+                        else if (_variables.ContainsKey(Peek().Value) && _variables[Peek().Value] is ClassInstance cls)
+                        {
+                            Advance();
+                            RunClassInstance(Peek().Value, new() { { Peek().Value, cls } });
+                        }
                         else
                         {
                             Advance();
@@ -391,7 +406,8 @@ namespace FeiSharpStudio
                 Console.WriteLine(new OutputEventArgs("\n[yellow]Execution cancelled by user[/]"));
                 return;
             }
-            catch (FeiSharpTerminal3._1.ExceptionThrow.Exception e){
+            catch (FeiSharpTerminal3._1.ExceptionThrow.Exception e)
+            {
                 Console.Write("");
                 return;
             }
@@ -466,14 +482,14 @@ namespace FeiSharpStudio
             if (method == null)
             {
                 property = type.GetProperty(functionName, BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.IgnoreCase);
-                if(property == null)
+                if (property == null)
                 {
                     field = type.GetField(functionName, BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.IgnoreCase);
-                    if(field == null)
+                    if (field == null)
                         throw new Exception(_tokens, _current, "Method, property or field is not correct", "FS2003");
                 }
             }
-            var k = method == null ? (property == null ? (args.Count == 1 ?  ClassInvokeField(field, args[0]) : field.GetValue(null)) : (args.Count == 1 ? ClassInvokeProperty(property, args[0]) : property.GetValue(null))) : method.Invoke(null, args.ToArray());
+            var k = method == null ? (property == null ? (args.Count == 1 ? ClassInvokeField(field, args[0]) : field.GetValue(null)) : (args.Count == 1 ? ClassInvokeProperty(property, args[0]) : property.GetValue(null))) : method.Invoke(null, args.ToArray());
             Advance();
             return k;
         }
@@ -502,12 +518,12 @@ namespace FeiSharpStudio
             var c = _variables[varName];
             Type? type = c.GetType();
             Type[] paramTypes = args?.Select(a => a?.GetType() ?? typeof(object)).ToArray() ?? new Type[0];
-            MethodInfo method = type.GetMethod(functionName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance  | BindingFlags.IgnoreCase | BindingFlags.FlattenHierarchy, null, paramTypes, null);
+            MethodInfo method = type.GetMethod(functionName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase | BindingFlags.FlattenHierarchy, null, paramTypes, null);
             PropertyInfo property = null;
             FieldInfo field = null;
             if (method == null)
             {
-                property = type.GetProperty(functionName, BindingFlags.Public |  BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase | BindingFlags.FlattenHierarchy);
+                property = type.GetProperty(functionName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase | BindingFlags.FlattenHierarchy);
                 if (property == null)
                 {
                     field = type.GetField(functionName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase | BindingFlags.FlattenHierarchy);
@@ -515,7 +531,7 @@ namespace FeiSharpStudio
                         throw new Exception(_tokens, _current, "Method, property or field is not correct", "FS2003");
                 }
             }
-            var k = method == null ? (property == null ? (args.Count == 1 ? ObjectInvokeField(field, args[0],c) : field.GetValue(c)) : (args.Count == 1 ? ObjectInvokeProperty(property, args[0],c) : property.GetValue(c))) : method.Invoke(c, args.ToArray());
+            var k = method == null ? (property == null ? (args.Count == 1 ? ObjectInvokeField(field, args[0], c) : field.GetValue(c)) : (args.Count == 1 ? ObjectInvokeProperty(property, args[0], c) : property.GetValue(c))) : method.Invoke(c, args.ToArray());
             Advance();
             return k;
         }
@@ -1319,8 +1335,12 @@ namespace FeiSharpStudio
                 throw new Exception(_tokens, _current, "A error " + _current + " was detected as a function name, but the corresponding namespace was not applied: FeiSharp.IO", "FS3001");
             }
         }
-        private KeyValuePair<string, bool> Runclass(string name)
+        private KeyValuePair<string, bool> Runclass(string name, Dictionary<string, ClassInfo> _classInfos = null)
         {
+            if(_classInfos == null)
+            {
+                _classInfos = this._classInfos;
+            }
             ClassInfo classInfo;
             try
             {
@@ -1332,18 +1352,14 @@ namespace FeiSharpStudio
             }
             string funcorvarname = "";
             bool isFunc = default;
-            try
+            if (Peek().Value == "(")
             {
-                foreach (var item in classInfo._Vars)
-                {
-                    _variables.NewAdd(item.Key, item.Value);
-                }
+                classInfo = RunClassConstructor(name, classInfo);
             }
-            catch
+            foreach (var item in classInfo._Vars)
             {
-                goto Parse;
+                _variables[item.Key] = item.Value;
             }
-        Parse:
             if (classInfo != null)
             {
                 if (Peek().Value == ".")
@@ -1351,10 +1367,9 @@ namespace FeiSharpStudio
                     Advance();
                     if (classInfo._FunctionInfo.ContainsKey(Peek().Value))
                     {
-                        _functions.Add(Peek().Value, classInfo._FunctionInfo[Peek().Value]);
                         funcorvarname = Peek().Value;
                         isFunc = true;
-                        RunFunction(Peek().Value);
+                        RunFunction(Peek().Value, classInfo._FunctionInfo[Peek().Value], classInfo);
                         Advance();
                     }
                     else if (classInfo._Vars.ContainsKey(Peek().Value))
@@ -1366,46 +1381,138 @@ namespace FeiSharpStudio
             }
             return new(funcorvarname, isFunc);
         }
+        private KeyValuePair<string, bool> RunClassInstance(string name, Dictionary<string, ClassInstance> instances = null)
+        {
+            ClassInstance classInfo;
+
+            try
+            {
+                if (instances != null && instances.ContainsKey(name))
+                    classInfo = instances[name];
+                else if (_variables.ContainsKey(name) && _variables[name] is ClassInstance)
+                    classInfo = _variables[name] as ClassInstance;
+                else
+                    throw new Exception(_tokens, _current, "类实例未定义: " + name, "FS3001");
+            }
+            catch
+            {
+                throw new Exception(_tokens, _current, "类实例未定义: " + name, "FS3001");
+            }
+
+            string funcorvarname = "";
+            bool isFunc = false;
+            object returnValue = null;
+
+            // 保存当前变量状态
+            var savedVariables = new Dictionary<string, object>(_variables);
+            var savedResults = new Dictionary<string, object>(_results);
+
+            // 临时添加实例变量到作用域
+            var instanceVariablesAdded = new List<string>();
+            foreach (var item in classInfo.Variables)
+            {
+                if (!_variables.ContainsKey(item.Key))
+                {
+                    _variables[item.Key] = item.Value;
+                    instanceVariablesAdded.Add(item.Key);
+                }
+            }
+
+            try
+            {
+                if (classInfo != null)
+                {
+                    if (Peek().Value == ".")
+                    {
+                        Advance();
+                        if (classInfo.Functions.ContainsKey(Peek().Value))
+                        {
+                            funcorvarname = Peek().Value;
+                            isFunc = true;
+                            List<object> args = new List<object>();
+                            Advance();
+
+                            if (MatchPunctuation("("))
+                            {
+                                while (Peek().Value != ")")
+                                {
+                                    if (Peek().Value == ",")
+                                    {
+                                        Advance();
+                                        continue;
+                                    }
+                                    args.Add(EvaluateExpression(ParseExpression()));
+                                }
+                                Advance(); // 消耗 ')'
+                            }
+
+                            // 调用方法并获取返回值
+                            returnValue = classInfo.CallMethod(funcorvarname, args, this);
+                            if (returnValue != null)
+                            {
+                                _variables[$"{name}:return"] = returnValue;
+                                _results[name] = returnValue;
+                            }
+                        }
+                        else if (classInfo.Variables.ContainsKey(Peek().Value))
+                        {
+                            funcorvarname = Peek().Value;
+                            isFunc = false;
+                            // 变量已经添加到 _variables 中了，不需要额外处理
+                        }
+                    }
+
+                    // 将实例变量中可能被修改的值同步回 classInfo
+                    foreach (var item in classInfo.Variables.Keys.ToList())
+                    {
+                        if (_variables.ContainsKey(item))
+                        {
+                            classInfo.Variables[item] = _variables[item];
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                // ============================================
+                // 恢复原始变量（关键部分）
+                // ============================================
+
+                // 1. 恢复所有原始变量
+                _variables.Clear();
+                foreach (var item in savedVariables)
+                {
+                    _variables[item.Key] = item.Value;
+                }
+
+                // 2. 恢复结果字典
+                _results.Clear();
+                foreach (var item in savedResults)
+                {
+                    _results[item.Key] = item.Value;
+                }
+
+                if (returnValue != null)
+                {
+                    _variables[$"{name}:last_return"] = returnValue;
+                }
+            }
+
+            return new KeyValuePair<string, bool>(funcorvarname, isFunc);
+        }
         private void ParseClassStatement()
         {
             string className = Peek().Value;
             Advance();
-            List<Token> tokens = new List<Token>();
-            int indexC = 0;
-            int doub = 0;
-            bool doubb = false;
-            for (int i = _current + 1; i < _tokens.Count; i++)
+            string? baseClassName = null;
+            if (MatchPunctuation(":"))
             {
-                if (_tokens[i].Value == "cend")
-                {
-                    if (doub != 0)
-                    {
-                        doub--;
-                        continue;
-                    }
-                    indexC = i;
-                    break;
-                }
-                if (_tokens[i].Value == "cbegin")
-                {
-                    if (doubb)
-                    {
-                        doub++;
-                        continue;
-                    }
-                    doubb = true;
-                    continue;
-                }
-                tokens.Add(_tokens[i]);
+                baseClassName = Peek().Value;
                 Advance();
             }
-            Advance();
-            ClassInfo classInfo;
-            Parser parser = new(tokens);
-            parser.OutputEvent += (s, e) => Console.WriteLine();
-            var @return = parser.Run(tokens, new(), 0);
-            classInfo = new(@return.Value, @return.Key, className);
-            _classInfos.Add(className, classInfo);
+            List<Token> tokens = ParseScopedTokens("{", "}", "class", "cbegin", "cend");
+            ClassInfo classInfo = BuildClassInfo(className, baseClassName, tokens);
+            _classInfos[className] = classInfo;
         }
         internal Dictionary<string, ClassInfo> _classInfos = new Dictionary<string, ClassInfo>();
         private void ParseInvokeStatement()
@@ -1550,8 +1657,12 @@ namespace FeiSharpStudio
         }
         private void ParseReturnStatement(string funcName)
         {
-            _results.Add(funcName, EvaluateExpression(ParseExpression()));
-            _variables.NewAdd($"{funcName}:return", _results[funcName]);
+            if (string.IsNullOrWhiteSpace(funcName))
+            {
+                throw new Exception(_tokens, _current, "return can only be used inside a function or constructor.", "FS2003");
+            }
+            _results[funcName] = EvaluateExpression(ParseExpression());
+            _variables[$"{funcName}:return"] = _results[funcName];
         }
         private void ParseThrowStatement()
         {
@@ -1566,117 +1677,396 @@ namespace FeiSharpStudio
             }
             Advance();
         }
+        private void ExecuteStatementsInRange(int startPos, int endPos)
+        {
+            int savedPosition = _current;
+
+            try
+            {
+                _current = startPos;
+
+                while (_current < endPos && !IsAtEnd())
+                {
+                    // 跳过分号
+                    if (Peek().Type == TokenTypes.Punctuation && Peek().Value == ";")
+                    {
+                        Advance();
+                        continue;
+                    }
+
+                    // 所有关键字都在这
+                    if (MatchKeyword(TokenKeywords._var))
+                    {
+                        ParseVariableDeclaration();
+                    }
+                    else if (MatchKeyword(TokenKeywords.print))
+                    {
+                        PrintStmt printStmt = ParsePrintStatement();
+                        EvaluatePrintStmt(printStmt);
+                    }
+                    else if (MatchKeyword(TokenKeywords.init))
+                    {
+                        ParseInitStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.set))
+                    {
+                        ParseSetStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.run))
+                    {
+                        ParseRunStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.export))
+                    {
+                        ParseExportStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.start))
+                    {
+                        ParseStartStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.stop))
+                    {
+                        ParseStopStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.wait))
+                    {
+                        ParseWaitStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.watchstart))
+                    {
+                        ParseWatchStartStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.watchend))
+                    {
+                        ParseWatchEndStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.abe))
+                    {
+                        ParseABEStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.helper))
+                    {
+                        ParseHelperStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords._if))
+                    {
+                        ParseIfStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords._while))
+                    {
+                        ParseWhileStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.func))
+                    {
+                        ParseFunctionStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.dowhile))
+                    {
+                        ParseDowhileStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords._throw))
+                    {
+                        ParseThrowStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords._return))
+                    {
+                        ParseReturnStatement("");
+                    }
+                    else if (MatchKeyword(TokenKeywords.gethtml))
+                    {
+                        ParseGetHtmlStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.getVarsFromJsonFilePath))
+                    {
+                        ParseGetJsonFilePathStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.readonlyclass))
+                    {
+                        ParseClassStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.invoke))
+                    {
+                        ParseInvokeStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.read))
+                    {
+                        ParseReadStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.import))
+                    {
+                        ParseImportStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.annotation))
+                    {
+                        ParseAnnotationStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.define))
+                    {
+                        ParseDefineStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.readline))
+                    {
+                        ParseReadLineStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.readkey))
+                    {
+                        ParseReadKeyStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.ctype))
+                    {
+                        ParseCTypeStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.cstr))
+                    {
+                        ParseCStRStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords._astextbox))
+                    {
+                        ParseAstextboxStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.createData))
+                    {
+                        ParseCreateDataStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.addData))
+                    {
+                        ParseAddDataStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.delData))
+                    {
+                        ParseDelDataStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.replaceData))
+                    {
+                        ParseReplaceData();
+                    }
+                    else if (MatchKeyword(TokenKeywords.getData))
+                    {
+                        ParseGetData();
+                    }
+                    else if (MatchKeyword(TokenKeywords.saveDataChanges))
+                    {
+                        ParseSaveDataChange();
+                    }
+                    else if (MatchKeyword(TokenKeywords.invokeData))
+                    {
+                        ParseInvokeData();
+                    }
+                    else if (MatchKeyword(TokenKeywords.createInstance))
+                    {
+                        ParseInstance();
+                    }
+                    else if (MatchKeyword(TokenKeywords.setClassVar))
+                    {
+                        ParseSetClassVar();
+                    }
+                    else if (MatchKeyword(TokenKeywords.setBaseClass))
+                    {
+                        ParseSetBase();
+                    }
+                    else if (MatchKeyword(TokenKeywords.printMethod))
+                    {
+                        ParsePrintMethod();
+                    }
+                    else if (MatchKeyword(TokenKeywords.rand))
+                    {
+                        ParseRand();
+                    }
+                    else if (MatchKeyword(TokenKeywords.pow))
+                    {
+                        Parsepow();
+                    }
+                    else if (MatchKeyword(TokenKeywords.sin))
+                    {
+                        Parsesin();
+                    }
+                    else if (MatchKeyword(TokenKeywords.cos))
+                    {
+                        Parsecos();
+                    }
+                    else if (MatchKeyword(TokenKeywords.tan))
+                    {
+                        Parsetan();
+                    }
+                    else if (MatchKeyword(TokenKeywords.asin))
+                    {
+                        Parseasin();
+                    }
+                    else if (MatchKeyword(TokenKeywords.acos))
+                    {
+                        Parseacos();
+                    }
+                    else if (MatchKeyword(TokenKeywords.atan))
+                    {
+                        Parseatan();
+                    }
+                    else if (MatchKeyword(TokenKeywords.sqrt))
+                    {
+                        Parsesqrt();
+                    }
+                    else if (MatchKeyword(TokenKeywords.strfromindex))
+                    {
+                        Parsefromindex();
+                    }
+                    else if (MatchKeyword(TokenKeywords.getindex))
+                    {
+                        Parsegetindex();
+                    }
+                    else if (MatchKeyword(TokenKeywords.strlen))
+                    {
+                        Parsestrlen();
+                    }
+                    else if (MatchKeyword(TokenKeywords.strreplace))
+                    {
+                        Parsereplace();
+                    }
+                    else if (MatchKeyword(TokenKeywords.datalen))
+                    {
+                        Parsedatalen();
+                    }
+                    else if (MatchKeyword(TokenKeywords.now))
+                    {
+                        Parsenow();
+                    }
+                    else if (MatchKeyword(TokenKeywords.timeformat))
+                    {
+                        Parsetimeformat();
+                    }
+                    else if (MatchKeyword(TokenKeywords.printnl))
+                    {
+                        ParsePrintnlStatement();
+                    }
+                    else if (MatchKeyword(TokenKeywords.substr))
+                    {
+                        Parsesubstr();
+                    }
+                    else if (MatchKeyword(TokenKeywords.eval))
+                    {
+                        Parseeval();
+                    }
+                    else if (MatchKeyword(TokenKeywords.osinfo))
+                    {
+                        Parseosinfo();
+                    }
+                    else if (MatchKeyword(TokenKeywords.sys))
+                    {
+                        Parsesys();
+                    }
+                    else if (MatchKeyword(TokenKeywords.getCurrentFilePath))
+                    {
+                        ParseGetCurrentFilePath();
+                    }
+                    else if (MatchKeyword(TokenKeywords.getCurrentFolderPath))
+                    {
+                        ParseGetCurrentFolderPath();
+                    }
+                    else if (MatchKeyword(TokenKeywords.mapPath))
+                    {
+                        ParseMapPath();
+                    }
+                    else if (MatchKeyword(TokenKeywords.appQuit))
+                    {
+                        ParseAppQuit();
+                    }
+                    else if (MatchKeyword("pause"))
+                    {
+                        ParsePause();
+                    }
+                    else if (Peek().Type == TokenTypes.Identifier && Peek().Value == TokenKeywords.classInvoke)
+                    {
+                        Advance();
+                        ParseClassInvoke();
+                    }
+                    else if (Peek().Type == TokenTypes.Identifier && Peek().Value == TokenKeywords.objectInvoke)
+                    {
+                        Advance();
+                        ParseObjectInvoke();
+                    }
+                    else if (MatchFunction(Peek().Value))
+                    {
+                        RunFunction(Peek().Value);
+                    }
+                    else if (_classInfos.ContainsKey(Peek().Value))
+                    {
+                        string className = Peek().Value;
+                        Advance();
+                        Runclass(className);
+                    }
+                    else
+                    {
+                        // 表达式语句
+                        Expr expr = ParseExpression();
+                        EvaluateExpression(expr);
+                        ConsumeOptionalSemicolon();
+                    }
+
+                    if (_isQuit)
+                    {
+                        Environment.Exit(_n);
+                    }
+
+                    _variables.NewAdd("it", _variables.Where(kvp => kvp.Key != "it").LastOrDefault().Value);
+                }
+            }
+            finally
+            {
+                _current = savedPosition;
+            }
+        }
         private void ParseDowhileStatement()
         {
-            if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
-            int current = _current;
-            string b = EvaluateExpression(ParseExpression()).ToString();
-            bool a = bool.Parse(b);
-            Advance();
-            List<Token> tokens = new List<Token>();
-            int indexC = 0;
-            int doub = 0;
-            bool doubb = false;
-            for (int i = _current + 1; i < _tokens.Count; i++)
+            if (!MatchPunctuation("{"))
+                throw new Exception(_tokens, _current, "Expected '{'", "FS2003");
+
+            int bodyStartIndex = _current;
+            int braceDepth = 1;
+            while (braceDepth > 0 && !IsAtEnd())
             {
-                if (_tokens[i].Value == "dend")
-                {
-                    if (doub != 0)
-                    {
-                        doub--;
-                        continue;
-                    }
-                    indexC = i;
-                    break;
-                }
-                if (_tokens[i].Value == "dbegin")
-                {
-                    if (doubb)
-                    {
-                        doub++;
-                        continue;
-                    }
-                    doubb = true;
-                    continue;
-                }
-                tokens.Add(_tokens[i]);
+                Token token = Peek();
                 Advance();
+                if (token.Value == "{") braceDepth++;
+                if (token.Value == "}") braceDepth--;
             }
+            int bodyEndIndex = _current - 1;
+
+            if (!MatchKeyword(TokenKeywords._while))
+                throw new Exception(_tokens, _current, "Expected 'while' after do block", "FS2003");
+
+            if (!MatchPunctuation("("))
+                throw new Exception(_tokens, _current, "Expected '('", "FS2003");
+
+            int conditionStart = _current;
+            Expr conditionExpr = ParseExpression();
+
+            if (!MatchPunctuation(")"))
+                throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
+
             int loopCount = 0;
+            bool condition;
+
             do
             {
                 loopCount++;
-                if (loopCount % 1000 == 0)
-                {
+                if (loopCount % CancelCheckInterval == 0)
                     CheckCancellation();
-                }
-                _variables = Run(tokens, _variables);
-                _current = current;
-                a = bool.Parse(EvaluateExpression(ParseExpression()).ToString());
-            } while (a);
-            _current = indexC;
+
+                ExecuteStatementsInRange(bodyStartIndex, bodyEndIndex);
+
+                _current = conditionStart;
+                conditionExpr = ParseExpression();
+                condition = bool.Parse(EvaluateExpression(conditionExpr).ToString());
+                if (!MatchPunctuation(")"))
+                    throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
+
+            } while (condition);
         }
         private void RunFunction(string funcName)
         {
-            FunctionInfo functionInfo = _functions[funcName];
-            List<object> actualParameters = new();
-            Advance();
-            while (Peek().Value != ")" && Peek().Value != ";")
-            {
-                if (Peek().Value == "," || Peek().Value == "(")
-                {
-                    Advance();
-                    continue;
-                }
-                else
-                {
-                    actualParameters.Add(EvaluateExpression(ParseExpression()));
-                    Advance();
-                }
-            }
-            for (int i = 0; i < functionInfo.Parameter.Count; i++)
-            {
-                try
-                {
-                    _variables.NewAdd(functionInfo.Parameter[i], actualParameters[i]);
-                }
-                catch (IndexOutOfRangeException)
-                {
-                    throw new Exception(_tokens, _current, "Parameters is not correct.", "FS3003");
-                }
-            }
-            _variables = Run(functionInfo.FunctionBody, _variables, funcName, _classInfos);
+            RunFunction(funcName, _functions[funcName], null);
         }
         private void RunFunction(string funcName, List<Token> tokens, List<string> args)
         {
-            FunctionInfo functionInfo = new(funcName, args, tokens);
-            List<object> actualParameters = new();
-            Advance();
-            while (Peek().Value != ")" && Peek().Value != ";")
-            {
-                if (Peek().Value == "," || Peek().Value == "(")
-                {
-                    Advance();
-                    continue;
-                }
-                else
-                {
-                    actualParameters.Add(EvaluateExpression(ParseExpression()));
-                    Advance();
-                }
-            }
-            for (int i = 0; i < functionInfo.Parameter.Count; i++)
-            {
-                try
-                {
-                    _variables.NewAdd(functionInfo.Parameter[i], actualParameters[i]);
-                }
-                catch (IndexOutOfRangeException)
-                {
-                    throw new Exception(_tokens, _current, "Parameters is not correct.", "FS3003");
-                }
-            }
-            _variables = Run(functionInfo.FunctionBody, _variables, funcName, _classInfos);
+            RunFunction(funcName, new FunctionInfo(funcName, args, tokens), null);
         }
         private bool MatchFunction(string funcName)
         {
@@ -1703,141 +2093,65 @@ namespace FeiSharpStudio
                 }
             }
             Advance();
-            List<Token> tokens = ParseTokens();
+            List<Token> tokens = ParseScopedTokens("{", "}", "function", "fbegin", "fend");
             functionInfo = new(name, parameters, tokens);
-            _functions.Add(name, functionInfo);
-            Advance();
-            Advance();
-        }
-        private List<Token> ParseTokens()
-        {
-            List<Token> tokens = new List<Token>();
-            int indexC = 0;
-            int doub = 0;
-            bool doubb = false;
-            for (int i = _current + 1; i < _tokens.Count; i++)
-            {
-                if (_tokens[i].Value == "fend")
-                {
-                    if (doub != 0)
-                    {
-                        doub--;
-                        continue;
-                    }
-                    indexC = i;
-                    break;
-                }
-                if (_tokens[i].Value == "fbegin")
-                {
-                    if (doubb)
-                    {
-                        doub++;
-                        continue;
-                    }
-                    doubb = true;
-                    continue;
-                }
-                tokens.Add(_tokens[i]);
-                Advance();
-            }
-            return tokens;
+            _functions[name] = functionInfo;
         }
         private void ParseWhileStatement()
         {
-            if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
-            int current = _current;
-            string b = EvaluateExpression(ParseExpression()).ToString();
-            bool a = bool.Parse(b);
-            Advance();
-            Advance();
-            List<Token> tokens = new List<Token>();
-            int indexC = 0;
-            int doub = 0;
-            bool doubb = false;
-            for (int i = _current + 1; i < _tokens.Count; i++)
+            if (!MatchPunctuation("("))
+                throw new Exception(_tokens, _current, "Expected '('", "FS2003");
+
+            int conditionStart = _current;
+            Expr conditionExpr = ParseExpression();
+
+            if (!MatchPunctuation(")"))
+                throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
+
+            if (!MatchPunctuation("{"))
+                throw new Exception(_tokens, _current, "Expected '{'", "FS2003");
+
+            int bodyStartIndex = _current;
+            int braceDepth = 1;
+            while (braceDepth > 0 && !IsAtEnd())
             {
-                if (_tokens[i].Value == "wend")
-                {
-                    if (doub != 0)
-                    {
-                        doub--;
-                        continue;
-                    }
-                    indexC = i;
-                    break;
-                }
-                if (_tokens[i].Value == "wbegin")
-                {
-                    if (doubb)
-                    {
-                        doub++;
-                        continue;
-                    }
-                    doubb = true;
-                    continue;
-                }
-                tokens.Add(_tokens[i]);
+                Token token = Peek();
                 Advance();
+                if (token.Value == "{") braceDepth++;
+                if (token.Value == "}") braceDepth--;
             }
-            Advance();
+            int bodyEndIndex = _current - 1;
+
             int loopCount = 0;
-            while (a)
+            bool condition = bool.Parse(EvaluateExpression(conditionExpr).ToString());
+
+            while (condition)
             {
                 loopCount++;
-                if (loopCount % 1000 == 0)
-                {
+                if (loopCount % CancelCheckInterval == 0)
                     CheckCancellation();
-                }
-                _variables = Run(tokens, _variables);
-                _current = current;
-                a = bool.Parse(EvaluateExpression(ParseExpression()).ToString());
+
+                // ✅ 直接执行位置范围，不创建任何东西
+                ExecuteStatementsInRange(bodyStartIndex, bodyEndIndex);
+
+                _current = conditionStart;
+                conditionExpr = ParseExpression();
+                condition = bool.Parse(EvaluateExpression(conditionExpr).ToString());
+                if (!MatchPunctuation(")"))
+                    throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
             }
-            _current = indexC;
         }
         private void ParseIfStatement()
         {
             if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
-            int current = _current;
             string b = EvaluateExpression(ParseExpression()).ToString();
             bool a = bool.Parse(b);
-            Advance();
-            List<Token> tokens = new List<Token>();
-            int indexC = 0;
-            int doub = 0;
-            bool doubb = false;
-            for (int i = _current + 1; i < _tokens.Count; i++)
-            {
-                if (_tokens[i].Value == "iend")
-                {
-                    if (doub != 0)
-                    {
-                        doub--;
-                        continue;
-                    }
-                    indexC = i;
-                    break;
-                }
-                if (_tokens[i].Value == "ibegin")
-                {
-                    if (doubb)
-                    {
-                        doub++;
-                        continue;
-                    }
-                    doubb = true;
-                    continue;
-                }
-                tokens.Add(_tokens[i]);
-                Advance();
-            }
-            Advance();
+            if (!MatchPunctuation(")")) throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
+            List<Token> tokens = ParseScopedTokens("{", "}", "if", "ibegin", "iend");
             if (a)
             {
                 _variables = Run(tokens, _variables);
-                _current = current;
-                a = bool.Parse(EvaluateExpression(ParseExpression()).ToString());
             }
-            _current = indexC;
         }
         private void ParseHelperStatement()
         {
@@ -1943,7 +2257,8 @@ namespace FeiSharpStudio
             if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
             Expr b = ParseExpression();
             string a = (string)EvaluateExpression(b);
-            Process.Start(new ProcessStartInfo() { FileName = a, CreateNoWindow = false, UseShellExecute = false });
+           
+            Process.Start(a);
             Advance();
             Advance();
         }
@@ -2030,6 +2345,9 @@ namespace FeiSharpStudio
             Parser parser = new(_tokens);
             parser.OutputEvent = this.OutputEvent;
             parser._variables = _vars;
+            parser._functions = new(_functions);
+            parser._classInfos = CloneClassInfos(_classInfos);
+            parser._results = _results;
             parser.ShouldCancel = this.ShouldCancel;
             try
             {
@@ -2043,6 +2361,9 @@ namespace FeiSharpStudio
             {
                 Console.WriteLine(new OutputEventArgs("Parsing error: " + ex.Message));
             }
+            _functions = parser._functions;
+            _classInfos = parser._classInfos;
+            _results = parser._results;
             return parser._variables;
         }
         internal KeyValuePair<Dictionary<string, object>, Dictionary<string, FunctionInfo>> Run(IEnumerable<Token> tokens, Dictionary<string, object> _vars, int op = 0)
@@ -2051,6 +2372,9 @@ namespace FeiSharpStudio
             Parser parser = new(_tokens);
             parser.OutputEvent = this.OutputEvent;
             parser._variables = _vars;
+            parser._functions = new(_functions);
+            parser._classInfos = CloneClassInfos(_classInfos);
+            parser._results = _results;
             parser.ShouldCancel = this.ShouldCancel;
             try
             {
@@ -2064,6 +2388,9 @@ namespace FeiSharpStudio
             {
                 Console.WriteLine(new OutputEventArgs("Parsing error: " + ex.Message));
             }
+            _functions = parser._functions;
+            _classInfos = parser._classInfos;
+            _results = parser._results;
             KeyValuePair<Dictionary<string, object>, Dictionary<string, FunctionInfo>> result = new(parser._variables, parser._functions);
             return result;
         }
@@ -2073,7 +2400,9 @@ namespace FeiSharpStudio
             Parser parser = new(_tokens);
             parser.OutputEvent = this.OutputEvent;
             parser._variables = _vars;
-            parser._classInfos = a;
+            parser._classInfos = CloneClassInfos(a);
+            parser._functions = new(_functions);
+            parser._results = _results;
             parser.ShouldCancel = this.ShouldCancel;
             try
             {
@@ -2087,6 +2416,9 @@ namespace FeiSharpStudio
             {
                 Console.WriteLine(new OutputEventArgs("Parsing error: " + ex.Message));
             }
+            _functions = parser._functions;
+            _classInfos = parser._classInfos;
+            _results = parser._results;
             return parser._variables;
         }
         internal Dictionary<string, object> Run(string code, int a)
@@ -2120,15 +2452,22 @@ namespace FeiSharpStudio
         private void ParseSetStatement()
         {
             if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
-            string name = EvaluateExpression(ParseExpression()).ToString();
+            string name;
+            if (MatchToken(TokenTypes.Identifier, out string identifier))
+            {
+                name = identifier;
+            }
+            else
+            {
+                name = EvaluateExpression(ParseExpression()).ToString();
+            }
             if (_variables.Count == 14 && _variables.ContainsKey(name))
             {
                 throw new Exception(_tokens, _current, "Cannot set or cover a const", "FS3001");
             }
             if (!MatchPunctuation(",")) throw new Exception(_tokens, _current, "Expected ','", "FS2003");
             object name1 = EvaluateExpression(ParseExpression());
-            Advance();
-            Advance();
+            if (!MatchPunctuation(")")) throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
             if (_variables.TryGetValue(name, out object _))
             {
                 _variables[name] = name1;
@@ -2144,11 +2483,12 @@ namespace FeiSharpStudio
                 {
                     var vars = item.Value._Vars;
                     vars[name] = name1;
-                    ClassInfo classInfo = new(item.Value._FunctionInfo, vars, item.Key);
+                    ClassInfo classInfo = new(item.Value._FunctionInfo, vars, item.Key, item.Value.ConstructorInfo, item.Value.BaseClassName);
                     a[item.Key] = classInfo;
                 }
             }
             _classInfos = a;
+            ConsumeOptionalSemicolon();
         }
         private void ParseInitStatement()
         {
@@ -2195,20 +2535,150 @@ namespace FeiSharpStudio
                 {
                     throw new Exception(_tokens, _current, "Cannot set or cover a const", "FS3001");
                 }
-                _variables[varName] = _variables["null"];
-                Advance();
+                _variables[varName] = 0;
+                ConsumeOptionalSemicolon();
                 return;
             }
-            else
+            if (_variables.Count == 14 && _variables.ContainsKey(varName))
             {
-                if (_variables.Count == 14 && _variables.ContainsKey(varName))
+                throw new Exception(_tokens, _current, "Cannot set or cover a const", "FS3001");
+            }
+            int savedPosition = _current;
+            if (TryParseClassInstantiation(varName, out object instanceValue))
+            {
+                _variables[varName] = instanceValue;
+                ConsumeOptionalSemicolon();
+                return;
+            }
+            _current = savedPosition;
+            Expr expr = ParseExpression();
+            object value = EvaluateExpression(expr);
+            _variables[varName] = value;
+            ConsumeOptionalSemicolon();
+        }
+
+        private bool TryParseClassInstantiation(string varName, out object instanceValue)
+        {
+            instanceValue = null;
+            if (!Check(TokenTypes.Identifier))
+                return false;
+            string className = Peek().Value;
+            if (!_classInfos.TryGetValue(className, out ClassInfo classInfo))
+                return false;
+            int savedPosition = _current;
+            Advance();
+            if (!MatchPunctuation("("))
+            {
+                _current = savedPosition;
+                return false;
+            }
+            List<object> args = new List<object>();
+            while (!IsAtEnd() && Peek().Value != ")")
+            {
+                if (Peek().Value != ",")
                 {
-                    throw new Exception(_tokens, _current, "Cannot set or cover a const", "FS3001");
+                    Expr argExpr = ParseExpression();
+                    object argValue = EvaluateExpression(argExpr);
+                    args.Add(argValue);
                 }
-                Expr expr = ParseExpression();
-                Advance();
-                object value = EvaluateExpression(expr);
-                _variables[varName] = value;
+                else
+                {
+                    Advance();
+                }
+            }
+            if (!MatchPunctuation(")"))
+            {
+                _current = savedPosition;
+                return false;
+            }
+            instanceValue = CreateClassInstance(className, classInfo, args);
+            _variables[varName] = instanceValue;
+            _variables[varName + ":type"] = className;
+
+            return true;
+        }
+
+        private object CreateClassInstance(string className, ClassInfo classInfo, List<object> args)
+        {
+            var instanceScope = new Dictionary<string, object>(classInfo._Vars, StringComparer.OrdinalIgnoreCase);
+            if (classInfo.ConstructorInfo != null)
+            {
+                var ctorArgs = new List<object>();
+                for (int i = 0; i < Math.Min(args.Count, classInfo.ConstructorInfo.Parameter.Count); i++)
+                {
+                    ctorArgs.Add(args[i]);
+                }
+                RunConstructor(classInfo.ConstructorInfo, instanceScope, ctorArgs);
+            }
+            var instance = new ClassInstance
+            {
+                ClassName = className,
+                Variables = instanceScope,
+                Functions = classInfo._FunctionInfo
+            };
+
+            return instance;
+        }
+        private void RunConstructor(FunctionInfo constructor, Dictionary<string, object> scope, List<object> args)
+        {
+            var savedVariables = new Dictionary<string, object>(_variables);
+            var savedResults = new Dictionary<string, object>(_results);
+            try
+            {
+                var tempVariables = new Dictionary<string, object>(scope);
+                for (int i = 0; i < constructor.Parameter.Count && i < args.Count; i++)
+                {
+                    tempVariables[constructor.Parameter[i]] = args[i];
+                }
+                var result = Run(constructor.FunctionBody, tempVariables, constructor.Name, _classInfos);
+                foreach (var kvp in result)
+                {
+                    scope[kvp.Key] = kvp.Value;
+                }
+            }
+            finally
+            {
+                _variables = savedVariables;
+                _results = savedResults;
+            }
+        }
+
+        public class ClassInstance
+        {
+            public string ClassName { get; set; }
+            public Dictionary<string, object> Variables { get; set; } = new();
+            public Dictionary<string, FunctionInfo> Functions { get; set; } = new();
+
+            public object GetVariable(string name)
+            {
+                return Variables.TryGetValue(name, out var value) ? value : null;
+            }
+
+            public void SetVariable(string name, object value)
+            {
+                Variables[name] = value;
+            }
+            public object CallMethod(string methodName, List<object> args, Parser parser)
+            {
+                if (Functions.TryGetValue(methodName, out var function))
+                {
+                    var methodScope = new Dictionary<string, object>(Variables);
+                    for (int i = 0; i < function.Parameter.Count && i < args.Count; i++)
+                    {
+                        methodScope[function.Parameter[i]] = args[i];
+                    }
+                    var result = parser.Run(function.FunctionBody, methodScope, methodName, parser._classInfos);
+                    foreach (var kvp in result)
+                    {
+                        Variables[kvp.Key] = kvp.Value;
+                    }
+                    if (parser._results.TryGetValue(methodName, out var returnValue))
+                    {
+                        return returnValue;
+                    }
+                }
+
+                return null;
             }
         }
         private PrintStmt ParsePrintStatement()
@@ -2244,10 +2714,10 @@ namespace FeiSharpStudio
             Advance();
             return new PrintStmt(expr);
         }
-        private Expr ParseExpression()
+        private Expr ParseExpression(int minPrecedence = 0)
         {
             Expr expr = ParsePrimary();
-            if(expr is BinaryExpr expr2 && expr2.Operator == "HAVE")
+            if (expr is BinaryExpr expr2 && expr2.Operator == "HAVE")
             {
                 return expr;
             }
@@ -2259,17 +2729,54 @@ namespace FeiSharpStudio
             {
                 return expr;
             }
-            while (MatchOperator("+", "-", "*", "/", "|", "^", "<", ">", "=", "!", "|", "&", "$"))
+            while (true)
             {
-                string op = Previous().Value;
-                Expr right = ParsePrimary();
+                if (IsAtEnd() || !IsOperator(Peek().Value))
+                    break;
+                string op = Peek().Value;
+                int precedence = GetPrecedence(op);
+                if (precedence < minPrecedence)
+                    break;
+                Advance();
+                Expr right = ParseExpression(precedence + 1);
                 expr = new BinaryExpr(expr, op, right);
             }
             return expr;
         }
+        private bool IsOperator(string token)
+        {
+            return token == "+" || token == "-" || token == "*" || token == "/" ||
+                   token == "^" || token == ">" || token == "<" || token == "=" ||
+                   token == "!" || token == "|" || token == "&" || token == "$";
+        }
+
+        private int GetPrecedence(string op)
+        {
+            return op switch
+            {
+                "|" => 1,
+                "&" => 2,
+                "=" or "!" => 3,
+                ">" or "<" => 3,
+                "^" => 4,
+                "+" or "-" => 5,
+                "*" or "/" => 6,
+                "$" => 7,
+                _ => 0
+            };
+        }
         private Expr ParsePrimary()
         {
             string varName = "";
+            if (MatchPunctuation("("))
+            {
+                Expr expr = ParseExpression(0);
+                if (!MatchPunctuation(")"))
+                {
+                    throw new Exception(_tokens, _current, "Expected ')' after expression", "FS2003");
+                }
+                return expr;
+            }
             if (MatchToken(TokenTypes.Number))
             {
                 return new ValueExpr(double.Parse(Previous().Value));
@@ -2285,7 +2792,43 @@ namespace FeiSharpStudio
             else if (MatchToken(TokenTypes.Identifier))
             {
                 varName = Previous().Value;
-                if(Previous().Type == TokenTypes.Identifier && Previous().Value == "classinvoke")
+
+                if (_variables.TryGetValue(varName, out object value) && value is ClassInstance instance)
+                {
+                    if (MatchPunctuation("."))
+                    {
+                        string memberName = Peek().Value;
+                        Advance();
+
+                        if (MatchPunctuation("("))
+                        {
+                            // 方法调用
+                            List<object> args = new List<object>();
+                            while (!IsAtEnd() && Peek().Value != ")")
+                            {
+                                if (Peek().Value != ",")
+                                {
+                                    Expr argExpr = ParseExpression();
+                                    args.Add(EvaluateExpression(argExpr));
+                                }
+                                else
+                                {
+                                    Advance();
+                                }
+                            }
+                            MatchPunctuation(")");
+                            object result = instance.CallMethod(memberName, args, this);
+                            return new ValueExpr(result);
+                        }
+                        else
+                        {
+                            // 属性/变量访问
+                            object memberValue = instance.GetVariable(memberName);
+                            return new ValueExpr(memberValue);
+                        }
+                    }
+                }
+                    if (Previous().Type == TokenTypes.Identifier && Previous().Value == "classinvoke")
                 {
                     return new BinaryExpr(new ValueExpr(ParseClassInvoke()), "HAVE", null);
                 }
@@ -2346,9 +2889,9 @@ namespace FeiSharpStudio
                 }
                 else
                 {
-                    if (_variables.TryGetValue(varName, out object value))
+                    if (_variables.TryGetValue(varName, out object value1))
                     {
-                        return new ValueExpr(value);
+                        return new ValueExpr(value1);
                     }
                     else if (_functions.ContainsKey(varName))
                     {
@@ -2381,82 +2924,11 @@ namespace FeiSharpStudio
             }
             else if (MatchKeyword("true"))
             {
-                varName = Previous().Value;
-                if (_variables.TryGetValue(varName, out object value))
-                {
-                    return new ValueExpr(value);
-                }
-                throw new Exception(_tokens, _current, $"Undefined variable: {varName}", "FS3001");
+                return new ValueExpr(true);
             }
             else if (MatchKeyword("false"))
             {
-                varName = Previous().Value;
-                if (_variables.TryGetValue(varName, out object value))
-                {
-                    return new ValueExpr(value);
-                }
-                throw new Exception(_tokens, _current, $"Undefined variable: {varName}", "FS3001");
-            }
-            else
-            {
-                varName = _tokens[_current - 3].Value;
-                if (Previous().Type == TokenTypes.Keyword && Previous().Value == "true")
-                {
-                    _current--;
-                    return new ValueExpr(true);
-                }
-                else if (Previous().Type == TokenTypes.Keyword && Previous().Value == "false")
-                {
-                    _current--;
-                    return new ValueExpr(false);
-                }
-                else if (MatchPreviousToken(TokenTypes.Number))
-                {
-                    return new ValueExpr(double.Parse(Previous().Value));
-                }
-                else if (MatchPreviousToken(TokenTypes.String))
-                {
-                    return new StringExpr(Previous().Value);
-                }
-                else if (MatchPreviousToken(TokenTypes.Character))
-                {
-                    return new ValueExpr(Previous().Value[0]);
-                }
-                else if (MatchPreviousToken(TokenTypes.Identifier))
-                {
-                    string varName2 = Previous().Value;
-                    if (_variables.TryGetValue(varName2, out object value))
-                    {
-                        return new ValueExpr(value);
-                    }
-                    else if (_functions.ContainsKey(varName2))
-                    {
-                        RunFunction(varName2);
-                        return new ValueExpr(_variables[$"{varName2}:return"]);
-                    }
-                    else
-                    {
-                        var a = Runclass(varName2);
-                        if (a.Value)
-                        {
-                            return new ValueExpr(_variables[$"{a.Key}:return"]);
-                        }
-                        else
-                        {
-                            return new ValueExpr(_variables[a.Key]);
-                        }
-                    }
-                    throw new Exception(_tokens, _current, $"Undefined variable: {varName2}", "FS3001");
-                }
-                else if (MatchPunctuation("("))
-                {
-                    Expr expr = ParseExpression();
-                    if (!MatchPunctuation(")"))
-                    {
-                        throw new Exception(_tokens, _current, "Expected ')' after expression", "FS2003");
-                    }
-                    return expr;
-                }
+                return new ValueExpr(false);
             }
             throw new Exception(_tokens, _current, "Unvalid token: " + Peek().Value, "FS2003");
         }
@@ -2514,15 +2986,337 @@ namespace FeiSharpStudio
                 Advance();
                 return true;
             }
+            return false;
+        }
+        private void ConsumeOptionalSemicolon()
+        {
+            if (!IsAtEnd() && Peek().Type == TokenTypes.Punctuation && Peek().Value == ";")
+            {
+                Advance();
+            }
+        }
+        private Dictionary<string, ClassInfo> CloneClassInfos(Dictionary<string, ClassInfo> source)
+        {
+            return source.ToDictionary(
+                item => item.Key,
+                item => new ClassInfo(item.Value._FunctionInfo, item.Value._Vars, item.Value.Name, item.Value.ConstructorInfo, item.Value.BaseClassName),
+                StringComparer.OrdinalIgnoreCase);
+        }
+        private List<Token> ParseScopedTokens(string openToken, string closeToken, string blockName, string? legacyOpenToken = null, string? legacyCloseToken = null)
+        {
+            if (MatchPunctuation(openToken))
+            {
+                return ReadBraceBlock(closeToken, blockName);
+            }
+            if (!string.IsNullOrEmpty(legacyOpenToken) && Peek().Value == legacyOpenToken)
+            {
+                Advance();
+                if (Peek().Value == ":")
+                {
+                    Advance();
+                }
+                return ReadLegacyBlock(legacyOpenToken, legacyCloseToken!, blockName);
+            }
+            throw new Exception(_tokens, _current, $"Expected '{openToken}' to start {blockName} block", "FS2003");
+        }
+        private List<Token> ReadBraceBlock(string closeToken, string blockName)
+        {
+            List<Token> tokens = new();
+            int depth = 1;
+            while (!IsAtEnd())
+            {
+                Token token = Peek();
+                Advance();
+                if (token.Type == TokenTypes.Punctuation && token.Value == "{")
+                {
+                    depth++;
+                    tokens.Add(token);
+                    continue;
+                }
+                if (token.Type == TokenTypes.Punctuation && token.Value == closeToken)
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        if (!IsAtEnd() && Peek().Value == ";")
+                        {
+                            Advance();
+                        }
+                        return tokens;
+                    }
+                    tokens.Add(token);
+                    continue;
+                }
+                tokens.Add(token);
+            }
+            throw new Exception(_tokens, _current, $"Unterminated {blockName} block", "FS2003");
+        }
+        private List<Token> ReadLegacyBlock(string legacyOpenToken, string legacyCloseToken, string blockName)
+        {
+            List<Token> tokens = new();
+            int depth = 1;
+            while (!IsAtEnd())
+            {
+                Token token = Peek();
+                Advance();
+                if (token.Value == legacyOpenToken)
+                {
+                    depth++;
+                    if (Peek().Value == ":")
+                    {
+                        Advance();
+                    }
+                    continue;
+                }
+                if (token.Value == legacyCloseToken)
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        if (!IsAtEnd() && Peek().Value == ";")
+                        {
+                            Advance();
+                        }
+                        return tokens;
+                    }
+                    continue;
+                }
+                tokens.Add(token);
+            }
+            throw new Exception(_tokens, _current, $"Unterminated {blockName} block", "FS2003");
+        }
+        private ClassInfo BuildClassInfo(string className, string? baseClassName, List<Token> classBodyTokens)
+        {
+            Dictionary<string, object> baseVars = new(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, FunctionInfo> baseFunctions = new(StringComparer.OrdinalIgnoreCase);
+            FunctionInfo? constructorInfo = null;
+            if (!string.IsNullOrWhiteSpace(baseClassName))
+            {
+                if (!_classInfos.TryGetValue(baseClassName, out var baseClassInfo))
+                {
+                    throw new Exception(_tokens, _current, $"Base class not defined: {baseClassName}", "FS3001");
+                }
+                baseVars = new(baseClassInfo._Vars, StringComparer.OrdinalIgnoreCase);
+                baseFunctions = new(baseClassInfo._FunctionInfo, StringComparer.OrdinalIgnoreCase);
+                constructorInfo = baseClassInfo.ConstructorInfo;
+            }
+            var outerFunctionNames = new HashSet<string>(_functions.Keys, StringComparer.OrdinalIgnoreCase);
+            Parser parser = new(RemoveConstructorTokens(className, classBodyTokens));
+            parser.OutputEvent = this.OutputEvent;
+            parser.ShouldCancel = this.ShouldCancel;
+            parser._variables = new(baseVars, StringComparer.OrdinalIgnoreCase);
+            parser._functions = new(_functions, StringComparer.OrdinalIgnoreCase);
+            parser._classInfos = CloneClassInfos(_classInfos);
+            parser.ParseStatements();
+            var memberFunctions = new Dictionary<string, FunctionInfo>(baseFunctions, StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in parser._functions)
+            {
+                if (!outerFunctionNames.Contains(kvp.Key))
+                {
+                    memberFunctions[kvp.Key] = kvp.Value;
+                }
+            }
+            constructorInfo = ParseConstructorInfo(className, classBodyTokens) ?? constructorInfo;
+            return new ClassInfo(memberFunctions, parser._variables, className, constructorInfo, baseClassName);
+        }
+        private FunctionInfo? ParseConstructorInfo(string className, List<Token> classBodyTokens)
+        {
+            for (int i = 0; i < classBodyTokens.Count; i++)
+            {
+                var token = classBodyTokens[i];
+                bool isConstructor = token.Type == TokenTypes.Identifier
+                    && (token.Value.Equals("constructor", StringComparison.OrdinalIgnoreCase)
+                    || token.Value.Equals(className, StringComparison.OrdinalIgnoreCase));
+                if (!isConstructor)
+                {
+                    continue;
+                }
+                if (i + 1 >= classBodyTokens.Count || classBodyTokens[i + 1].Value != "(")
+                {
+                    continue;
+                }
+                i += 2;
+                List<string> parameters = [];
+                while (i < classBodyTokens.Count && classBodyTokens[i].Value != ")")
+                {
+                    if (classBodyTokens[i].Type == TokenTypes.Identifier)
+                    {
+                        parameters.Add(classBodyTokens[i].Value);
+                    }
+                    i++;
+                }
+                if (i >= classBodyTokens.Count || classBodyTokens[i].Value != ")")
+                {
+                    throw new Exception(_tokens, _current, $"Invalid constructor declaration in class '{className}'", "FS2003");
+                }
+                i++;
+                if (i >= classBodyTokens.Count || classBodyTokens[i].Value != "{")
+                {
+                    throw new Exception(_tokens, _current, $"Constructor in class '{className}' must use '{{}}' block", "FS2003");
+                }
+                i++;
+                List<Token> bodyTokens = [];
+                int depth = 1;
+                for (; i < classBodyTokens.Count; i++)
+                {
+                    var currentToken = classBodyTokens[i];
+                    if (currentToken.Value == "{")
+                    {
+                        depth++;
+                        bodyTokens.Add(currentToken);
+                        continue;
+                    }
+                    if (currentToken.Value == "}")
+                    {
+                        depth--;
+                        if (depth == 0)
+                        {
+                            return new FunctionInfo($"{className}:ctor", parameters, bodyTokens);
+                        }
+                        bodyTokens.Add(currentToken);
+                        continue;
+                    }
+                    bodyTokens.Add(currentToken);
+                }
+                throw new Exception(_tokens, _current, $"Unterminated constructor block in class '{className}'", "FS2003");
+            }
+            return null;
+        }
+        private List<Token> RemoveConstructorTokens(string className, List<Token> classBodyTokens)
+        {
+            List<Token> filtered = [];
+            for (int i = 0; i < classBodyTokens.Count; i++)
+            {
+                var token = classBodyTokens[i];
+                bool isConstructor = token.Type == TokenTypes.Identifier
+                    && (token.Value.Equals("constructor", StringComparison.OrdinalIgnoreCase)
+                    || token.Value.Equals(className, StringComparison.OrdinalIgnoreCase));
+                if (!isConstructor || i + 1 >= classBodyTokens.Count || classBodyTokens[i + 1].Value != "(")
+                {
+                    filtered.Add(token);
+                    continue;
+                }
+                i += 2;
+                while (i < classBodyTokens.Count && classBodyTokens[i].Value != ")")
+                {
+                    i++;
+                }
+                if (i >= classBodyTokens.Count || i + 1 >= classBodyTokens.Count || classBodyTokens[i + 1].Value != "{")
+                {
+                    throw new Exception(_tokens, _current, $"Invalid constructor declaration in class '{className}'", "FS2003");
+                }
+                i += 2;
+                int depth = 1;
+                for (; i < classBodyTokens.Count; i++)
+                {
+                    if (classBodyTokens[i].Value == "{")
+                    {
+                        depth++;
+                        continue;
+                    }
+                    if (classBodyTokens[i].Value == "}")
+                    {
+                        depth--;
+                        if (depth == 0)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+            return filtered;
+        }
+        private ClassInfo RunClassConstructor(string className, ClassInfo classInfo)
+        {
+            if (classInfo.ConstructorInfo == null)
+            {
+                SkipInvocationArguments();
+                return classInfo;
+            }
+            var ctorScope = new Dictionary<string, object>(classInfo._Vars, StringComparer.OrdinalIgnoreCase);
+            RunFunction(classInfo.ConstructorInfo.Name, classInfo.ConstructorInfo, classInfo, ctorScope);
+            if (Peek().Value == ")")
+            {
+                Advance();
+            }
+            ClassInfo updated = new(classInfo._FunctionInfo, ctorScope, className, classInfo.ConstructorInfo, classInfo.BaseClassName);
+            _classInfos[className] = updated;
+            return updated;
+        }
+        private void SkipInvocationArguments()
+        {
+            if (!MatchPunctuation("("))
+            {
+                return;
+            }
+            int depth = 1;
+            while (!IsAtEnd() && depth > 0)
+            {
+                Token token = Peek();
+                Advance();
+                if (token.Value == "(") depth++;
+                if (token.Value == ")") depth--;
+            }
+        }
+        private void RunFunction(string funcName, FunctionInfo functionInfo, ClassInfo? classContext, Dictionary<string, object>? targetVariables = null)
+        {
+            List<object> actualParameters = new();
+            if (Peek().Value == "(")
+            {
+                Advance();
+            }
             else
             {
                 Advance();
-                if (Check(TokenTypes.Punctuation) && Peek().Value == punctuation)
+                if (!MatchPunctuation("("))
                 {
-                    return true;
+                    throw new Exception(_tokens, _current, "Expected '('", "FS2003");
                 }
             }
-            return false;
+            while (Peek().Value != ")" && Peek().Value != ";")
+            {
+                if (Peek().Value == ",")
+                {
+                    Advance();
+                    continue;
+                }
+                actualParameters.Add(EvaluateExpression(ParseExpression()));
+            }
+            var scope = targetVariables ?? _variables;
+            for (int i = 0; i < functionInfo.Parameter.Count; i++)
+            {
+                try
+                {
+                    scope[functionInfo.Parameter[i]] = actualParameters[i];
+                }
+                catch (IndexOutOfRangeException)
+                {
+                    throw new Exception(_tokens, _current, "Parameters is not correct.", "FS3003");
+                }
+            }
+            var functionClasses = CloneClassInfos(_classInfos);
+            if (classContext != null)
+            {
+                functionClasses[classContext.Name] = new ClassInfo(classContext._FunctionInfo, scope, classContext.Name, classContext.ConstructorInfo, classContext.BaseClassName);
+            }
+            var previousFunctions = _functions;
+            if (classContext != null)
+            {
+                _functions = new(previousFunctions, StringComparer.OrdinalIgnoreCase);
+                foreach (var memberFunction in classContext._FunctionInfo)
+                {
+                    _functions[memberFunction.Key] = memberFunction.Value;
+                }
+            }
+            _variables = Run(functionInfo.FunctionBody, scope, funcName, functionClasses);
+            if (classContext != null)
+            {
+                _functions = previousFunctions;
+            }
+            if (classContext != null)
+            {
+                _classInfos[classContext.Name] = new ClassInfo(classContext._FunctionInfo, _variables, classContext.Name, classContext.ConstructorInfo, classContext.BaseClassName);
+            }
         }
         private bool MatchOperator(params string[] operators)
         {
@@ -2544,7 +3338,7 @@ namespace FeiSharpStudio
         }
         private bool IsAtEnd()
         {
-            return _current >= _tokens.Count;
+            return _current >= _tokens.Count || _tokens[_current].Type == TokenTypes.EndOfFile;
         }
         private Token Peek()
         {
@@ -2572,7 +3366,7 @@ namespace FeiSharpStudio
         }
         private object EvaluateExpression(Expr expr)
         {
-            if(expr is BinaryExpr expr2 && expr2.Operator == "HAVE")
+            if (expr is BinaryExpr expr2 && expr2.Operator == "HAVE")
             {
                 return (expr2.Left as ValueExpr).Value;
             }
@@ -2584,238 +3378,258 @@ namespace FeiSharpStudio
             {
                 return (expr4.Left as ValueExpr).Value;
             }
+
             switch (expr)
             {
                 case ValueExpr numExpr:
-                    if (double.TryParse(numExpr.Value.ToString(), out double a) && (numExpr.Value.GetType().Name == "Double" || numExpr.Value.GetType().Name == "Int32"))
-                    {
-                        return double.Parse(numExpr.Value.ToString());
-                    }
-                    else
-                    {
-                        if (numExpr.Value is string)
-                        {
-                            numExpr.Value = Regex.Replace(numExpr.Value.ToString(), @"\$\(unicode:([0-9A-Fa-f]{4,5})\)", m => char.ConvertFromUtf32(Convert.ToInt32(m.Groups[1].Value, 16))); ;
-                            return numExpr.Value.ToString().Replace("$(newline)", "\n").Replace("$(tab)", "    ").Replace("\\n", "\n").Replace("\\t", "\t").Replace("\\\\", "\\");
-                        }
-                        else if(numExpr.Value is char)
-                        {
-                            return Regex.Replace(numExpr.Value.ToString(), @"\$\(unicode:([0-9A-Fa-f]{4,5})\)", m => char.ConvertFromUtf32(Convert.ToInt32(m.Groups[1].Value, 16))).Replace("\\\\", "\\").Replace("\\t", "\t").Replace("\\n", "\n");
-                        }
-                        else
-                        {
-                            return bool.Parse(numExpr.Value.ToString());
-                        }
-                    }
+                    return EvaluateValueExpr(numExpr);
 
                 case BinaryExpr binExpr:
-                    object left = EvaluateExpression(binExpr.Left);
-                    object right = EvaluateExpression(binExpr.Right);
-                    if (left.GetType() != right.GetType())
-                    {
-                        object oldRight = right;
-                        try
-                        {
-                            right = Convert.ChangeType(right, left.GetType());
-                        }
-                        catch
-                        {
-                            right = null;
-                        }
-                        if (right == null)
-                        {
-                            try
-                            {
-                                left = Convert.ChangeType(left, oldRight.GetType());
-                            }
-                            catch
-                            {
-                                left = null;
-                            }
-                            if (left == null)
-                                throw new Exception(_tokens, _current, "ITC: Unable to accurately determine the type or the conversion attempt failed", "FS3001");
-                            else
-                                right = oldRight;
-                        }
-                        if(binExpr.Operator == "*")
-                        {
-                            if (left is string or char || right is double)
-                            {
-                                return string.Concat(Enumerable.Repeat(left.ToString(), (int)right));
+                    return EvaluateBinaryExpr(binExpr);
 
-                            }
-                            else if (left is double || right is string or char)
-                            {
-                                return string.Concat(Enumerable.Repeat(right.ToString(), (int)left));
-                            }
-                        }
-                    }
-                    if (left is string or char && right is string or char)
-                    {
-                        return binExpr.Operator switch
-                        {
-                            "+" => left.ToString() + right.ToString(),
-                            "-" => Regex.Replace((string)left, Regex.Escape((string)right), ""),
-                            "/" => (left.ToString()).Split(right.ToString()).Length - 1,
-                            "=" => left.ToString() == right.ToString(),
-                            "!" => left.ToString() != right.ToString(),
-                            _ => throw new Exception(_tokens, _current, $"Cannot using operator '{binExpr.Operator}' to connect {left.GetType().ToString().ToLower()}_obj and {right.GetType().ToString().ToLower()}_obj.", "FS2003")
-                        };
-                    }
-                    else if (right is bool && left is bool)
-                    {
-                        return binExpr.Operator switch
-                        {
-                            "&" => (bool)left && (bool)right,
-                            "|" => (bool)left || (bool)right,
-                            "!" => (bool)left != (bool)right,
-                            _ => throw new Exception(_tokens, _current, $"Cannot using operator '{binExpr.Operator}' to connect {left.GetType().ToString().ToLower()}_obj and {right.GetType().ToString().ToLower()}_obj.", "FS2003")
-                        };
-                    }
-                    if (left.GetType() != right.GetType())
-                    {
-                        throw new Exception(_tokens, _current, $"Cannot using operator '{binExpr.Operator}' to connect {left.GetType().ToString().ToLower()}_obj and {right.GetType().ToString().ToLower()}_obj.", "FS2003");
-                    }
-                    left = Convert.ToDouble(left.ToString());
-                    right = Convert.ToDouble(right.ToString());
-                    return binExpr.Operator switch
-                    {
-                        "+" => (double)left + (double)right,
-                        "-" => (double)left - (double)right,
-                        "*" => (double)left * (double)right,
-                        "/" => (double)left / (double)right,
-                        "^" => (int)left ^ (int)right,
-                        ">" => (double)left > (double)right,
-                        "<" => (double)left < (double)right,
-                        "=" => (double)left == (double)right,
-                        "&" => (int)left & (int)right,
-                        "|" => (int)left | (int)right,
-                        "!" => (double)left != (double)right,
-                        "$" => Math.Pow((double)left, (double)right),
-                        _ => throw new Exception(_tokens, _current, $"Cannot using operator '{binExpr.Operator}' to connect {left.GetType().ToString().ToLower()}_obj and {right.GetType().ToString().ToLower()}_obj" +
-                        $").", "FS2003")
-                    };
                 case StringExpr stringExpr:
-                    stringExpr.Value = Regex.Replace(stringExpr.Value, @"\$\(unicode:([0-9A-Fa-f]{4,5})\)", m => char.ConvertFromUtf32(Convert.ToInt32(m.Groups[1].Value, 16)));
-                    return stringExpr.Value.Replace("$(newline)", "\n").Replace("$(tab)", "    ").Replace("\\n", "\n").Replace("\\t", "\t").Replace("\\\\", "\\"); ;
+                    return EvaluateStringExpr(stringExpr);
+
                 default:
                     throw new Exception(_tokens, _current, "Unexpected expression type", "FS2003");
             }
-            string RepeatZeros(int a)
+        }
+
+        private object EvaluateValueExpr(ValueExpr numExpr)
+        {
+            if (numExpr.Value is double d)
+                return d;
+            if (numExpr.Value is int i)
+                return (double)i;
+            if (numExpr.Value is float f)
+                return (double)f;
+            if (numExpr.Value is string str)
             {
-                string result = "";
-                for (int i = 0; i < a; i++)
+                str = Regex.Replace(str, @"\$\(unicode:([0-9A-Fa-f]{4,5})\)",
+                    m => char.ConvertFromUtf32(Convert.ToInt32(m.Groups[1].Value, 16)));
+                for(int a = 0; a < str.Length; a++)
                 {
-                    result += "0";
+                    if (str[a] == '\\')
+                    {
+                        if (!(str[a + 1] == '\\' || str[a + 1] == 'n' || str[a + 1] == 't' || str[a - 1] == '\\'))
+                        {
+                            throw new Exception(_tokens, _current, "FS1002: '\\' syntax is error, it must be 'n', 't', or another '\\' after '\\'", "FS1002");
+                        }
+                    }
                 }
-                return result;
+                return str.Replace("$(newline)", "\n")
+                          .Replace("$(tab)", "    ")
+                          .Replace("\\n", "\n")
+                          .Replace("\\t", "\t")
+                          .Replace("\\\\", "\\");
             }
+            if (numExpr.Value is char c)
+            {
+                string result = Regex.Replace(c.ToString(), @"\$\(unicode:([0-9A-Fa-f]{4,5})\)",
+                    m => char.ConvertFromUtf32(Convert.ToInt32(m.Groups[1].Value, 16)));
+                return result.Replace("\\\\", "\\").Replace("\\t", "\t").Replace("\\n", "\n");
+            }
+            if (numExpr.Value is bool b)
+                return b;
+
+            // 尝试解析为数值
+            if (double.TryParse(numExpr.Value.ToString(), out double parsed))
+                return parsed;
+
+            return numExpr.Value;
+        }
+
+        private object EvaluateBinaryExpr(BinaryExpr binExpr)
+        {
+            object left = EvaluateExpression(binExpr.Left);
+            object right = EvaluateExpression(binExpr.Right);
+
+            // 快速路径：字符串和字符操作
+            if (left is string or char && right is string or char)
+            {
+                return EvaluateStringBinary(left, right, binExpr.Operator);
+            }
+
+            // 快速路径：布尔操作
+            if (left is bool && right is bool)
+            {
+                return EvaluateBoolBinary((bool)left, (bool)right, binExpr.Operator);
+            }
+
+            // 类型统一和转换
+            if (left.GetType() != right.GetType())
+            {
+                if (!TryUnifyTypes(ref left, ref right))
+                {
+                    throw new Exception(_tokens, _current,
+                        $"ITC: Unable to accurately determine the type or the conversion attempt failed", "FS3001");
+                }
+            }
+
+            // 字符串乘法特殊处理
+            if (binExpr.Operator == "*")
+            {
+                if ((left is string or char && right is double) ||
+                    (left is double && right is string or char))
+                {
+                    string str = (left is string or char) ? left.ToString() : right.ToString();
+                    int count = (int)((left is double) ? (double)left : (double)right);
+                    return string.Concat(Enumerable.Repeat(str, count));
+                }
+            }
+
+            // 数值运算（优化后的快速路径）
+            return EvaluateNumericBinary(left, right, binExpr.Operator);
+        }
+
+        private object EvaluateStringBinary(object left, object right, string op)
+        {
+            string leftStr = left.ToString();
+            string rightStr = right.ToString();
+
+            return op switch
+            {
+                "+" => leftStr + rightStr,
+                "-" => Regex.Replace(leftStr, Regex.Escape(rightStr), ""),
+                "/" => leftStr.Split(rightStr).Length - 1,
+                "=" => leftStr == rightStr,
+                "!" => leftStr != rightStr,
+                _ => throw new Exception(_tokens, _current,
+                    $"Cannot using operator '{op}' to connect string_obj and string_obj.", "FS2003")
+            };
+        }
+
+        private object EvaluateBoolBinary(bool left, bool right, string op)
+        {
+            return op switch
+            {
+                "&" => left && right,
+                "|" => left || right,
+                "!" => left != right,
+                _ => throw new Exception(_tokens, _current,
+                    $"Cannot using operator '{op}' to connect bool_obj and bool_obj.", "FS2003")
+            };
+        }
+
+        private bool TryUnifyTypes(ref object left, ref object right)
+        {
+            Type leftType = left.GetType();
+            Type rightType = right.GetType();
+            object originalRight = right;
+            object originalLeft = left;
+
+            // 尝试将 right 转换为 left 的类型
+            try
+            {
+                right = Convert.ChangeType(right, leftType);
+                return true;
+            }
+            catch { }
+
+            // 尝试将 left 转换为 right 的类型
+            try
+            {
+                left = Convert.ChangeType(left, rightType);
+                right = originalRight;
+                return true;
+            }
+            catch { }
+
+            return false;
+        }
+        private Dictionary<string, object> RunWithoutNewParser(List<Token> tokens, Dictionary<string, object> variables)
+        {
+            var savedTokens = _tokens;
+            var savedPosition = _current;
+            var savedVariables = new Dictionary<string, object>(_variables);
+            var savedFunctions = new Dictionary<string, FunctionInfo>(_functions);
+            var savedClassInfos = CloneClassInfos(_classInfos);
+            var savedResults = new Dictionary<string, object>(_results);
+
+            try
+            {
+                // 临时替换为新的 tokens 和变量
+                _tokens = tokens;
+                _current = 0;
+                _variables = new Dictionary<string, object>(variables);
+                _functions = new Dictionary<string, FunctionInfo>(_functions);
+                _classInfos = CloneClassInfos(_classInfos);
+                _results = new Dictionary<string, object>();
+
+                // 执行语句
+                ParseStatements();
+
+                // 返回执行后的变量
+                return new Dictionary<string, object>(_variables);
+            }
+            finally
+            {
+                // 合并变量更改（循环体内的变量修改需要保留）
+                foreach (var kv in _variables)
+                {
+                    savedVariables[kv.Key] = kv.Value;
+                }
+
+                // 恢复状态
+                _tokens = savedTokens;
+                _current = savedPosition;
+                _variables = savedVariables;
+                _functions = savedFunctions;
+                _classInfos = savedClassInfos;
+                _results = savedResults;
+            }
+        }
+        private object EvaluateNumericBinary(object left, object right, string op)
+        {
+            // 快速转换为数值（避免 ToString()）
+            double leftNum, rightNum;
+
+            try
+            {
+                leftNum = Convert.ToDouble(left);
+                rightNum = Convert.ToDouble(right);
+            }
+            catch
+            {
+                throw new Exception(_tokens, _current,
+                    $"Cannot convert {left.GetType()} or {right.GetType()} to number for operator '{op}'", "FS2003");
+            }
+
+            return op switch
+            {
+                "+" => leftNum + rightNum,
+                "-" => leftNum - rightNum,
+                "*" => leftNum * rightNum,
+                "/" => leftNum / rightNum,
+                "^" => (int)leftNum ^ (int)rightNum,
+                ">" => leftNum > rightNum,
+                "<" => leftNum < rightNum,
+                "=" => leftNum == rightNum,
+                "&" => (int)leftNum & (int)rightNum,
+                "|" => (int)leftNum | (int)rightNum,
+                "!" => leftNum != rightNum,
+                "$" => Math.Pow(leftNum, rightNum),
+                _ => throw new Exception(_tokens, _current,
+                    $"ICS: Cannot using operator '{op}' to connect numeric values.", "FS2003")
+            };
+        }
+
+        private object EvaluateStringExpr(StringExpr stringExpr)
+        {
+            stringExpr.Value = Regex.Replace(stringExpr.Value, @"\$\(unicode:([0-9A-Fa-f]{4,5})\)",
+                m => char.ConvertFromUtf32(Convert.ToInt32(m.Groups[1].Value, 16)));
+
+            return stringExpr.Value.Replace("$(newline)", "\n")
+                                  .Replace("$(tab)", "    ")
+                                  .Replace("\\n", "\n")
+                                  .Replace("\\t", "\t")
+                                  .Replace("\\\\", "\\");
         }
     }
 
-    public class ConsoleTextReader
-    {
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern IntPtr GetStdHandle(int nStdHandle);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool ReadConsoleOutput(
-            IntPtr hConsoleOutput,
-            [Out] CHAR_INFO[] lpBuffer,
-            COORD dwBufferSize,
-            COORD dwBufferCoord,
-            ref SMALL_RECT lpReadRegion);
-
-        const int STD_OUTPUT_HANDLE = -11;
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct COORD
-        {
-            public short X;
-            public short Y;
-        }
-
-        [StructLayout(LayoutKind.Explicit)]
-        public struct CHAR_INFO
-        {
-            [FieldOffset(0)] public char UnicodeChar;
-            [FieldOffset(0)] public byte AsciiChar;
-            [FieldOffset(2)] public short Attributes;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct SMALL_RECT
-        {
-            public short Left;
-            public short Top;
-            public short Right;
-            public short Bottom;
-        }
-
-        public static string GetConsoleText()
-        {
-            IntPtr hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-            if (hConsole == IntPtr.Zero)
-                return string.Empty;
-
-            CONSOLE_SCREEN_BUFFER_INFO csbi;
-            if (!GetConsoleScreenBufferInfo(hConsole, out csbi))
-                return string.Empty;
-
-            int width = csbi.dwSize.X;
-            int height = csbi.dwSize.Y;
-
-            CHAR_INFO[] buffer = new CHAR_INFO[width * height];
-            SMALL_RECT rect = new SMALL_RECT()
-            {
-                Left = 0,
-                Top = 0,
-                Right = (short)(width - 1),
-                Bottom = (short)(height - 1)
-            };
-
-            COORD size = new COORD()
-            {
-                X = (short)width,
-                Y = (short)height
-            };
-
-            COORD pos = new COORD()
-            {
-                X = 0,
-                Y = 0
-            };
-
-            if (!ReadConsoleOutput(hConsole, buffer, size, pos, ref rect))
-                return string.Empty;
-
-            StringBuilder sb = new StringBuilder(width * height);
-            for (int i = 0; i < buffer.Length; i++)
-            {
-                sb.Append(buffer[i].UnicodeChar);
-            }
-
-            return sb.ToString();
-        }
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool GetConsoleScreenBufferInfo(
-            IntPtr hConsoleOutput,
-            out CONSOLE_SCREEN_BUFFER_INFO lpConsoleScreenBufferInfo);
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct CONSOLE_SCREEN_BUFFER_INFO
-        {
-            public COORD dwSize;
-            public COORD dwCursorPosition;
-            public short wAttributes;
-            public SMALL_RECT srWindow;
-            public COORD dwMaximumWindowSize;
-        }
-    }
-[RequiresDynamicCode("FeiSharp constructs CLR instances from runtime-discovered constructors.")]
-[RequiresUnreferencedCode("FeiSharp constructs CLR instances from runtime-discovered constructors.")]
-public static class SmartActivator
+    [RequiresDynamicCode("FeiSharp constructs CLR instances from runtime-discovered constructors.")]
+    [RequiresUnreferencedCode("FeiSharp constructs CLR instances from runtime-discovered constructors.")]
+    public static class SmartActivator
     {
         public static object CreateInstance(
             Type type,
@@ -3017,7 +3831,7 @@ public static class SmartActivator
             return convertedArgs;
         }
 
-
+        
         private static object ConvertValue(object value, Type targetType)
         {
             if (value == null) return null;

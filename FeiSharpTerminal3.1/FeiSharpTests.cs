@@ -42,6 +42,46 @@ var x = 0;
 oldpow(""x"", 2, 3);",
                 new ExpectedVariable("x", 8));
         }),
+        ("Brace Function Scope Test", () => {
+            RunFeiSharpCode(@"
+function inc(v) {
+    return v + 1;
+}
+function useOther() {
+    return inc(4);
+}
+var result = useOther();",
+                new ExpectedVariable("result", 5));
+        }),
+        ("Brace If Test", () => {
+            RunFeiSharpCode(@"
+var x = 0;
+if(true) {
+    set(x, 7);
+}",
+                new ExpectedVariable("x", 7));
+        }),
+        ("Class Inheritance Constructor Field Test", () => {
+            RunFeiSharpCode(@"
+class Base {
+    var baseValue = 2;
+    function readBase() {
+        return baseValue;
+    }
+}
+class Child : Base {
+    var value = 0;
+    constructor(seed) {
+        set(value, seed + baseValue);
+    }
+    function getValue() {
+        return value;
+    }
+}
+var a = Child(5);
+var result = a.getValue();",
+                new ExpectedVariable("result", 7));
+        }),
     };
     public static void RunAllTests()
     {

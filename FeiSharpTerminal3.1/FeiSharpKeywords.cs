@@ -15,7 +15,7 @@ namespace FeiSharpTerminal3._1
                 ["printnl"] = new Token(TokenTypes.Keyword, "printnl"),
                 ["gethtml"] = new Token(TokenTypes.Keyword, "gethtml"),
                 ["var"] = new Token(TokenTypes.Keyword, "var"),
-                ["set"] = new Token(TokenTypes.Keyword, "var"),
+                ["set"] = new Token(TokenTypes.Keyword, "setsf"),
                 ["let"] = new Token(TokenTypes.Keyword, "var"),
                 ["dim"] = new Token(TokenTypes.Keyword, "var"),
                 ["variable"] = new Token(TokenTypes.Keyword, "var"),

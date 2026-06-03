@@ -1,4 +1,5 @@
 using FeiSharpTerminal3._1;
+using System.Data;
 namespace FeiSharpStudio;
 public class CodeError
 {
