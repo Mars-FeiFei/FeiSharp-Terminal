@@ -1433,12 +1433,10 @@ namespace FeiSharpStudio
             bool isFunc = false;
             object returnValue = null;
 
-            // 保存当前变量状态
-            var savedVariables = new Dictionary<string, object>(_variables);
+                        var savedVariables = new Dictionary<string, object>(_variables);
             var savedResults = new Dictionary<string, object>(_results);
 
-            // 临时添加实例变量到作用域
-            var instanceVariablesAdded = new List<string>();
+                        var instanceVariablesAdded = new List<string>();
             foreach (var item in classInfo.Variables)
             {
                 if (!_variables.ContainsKey(item.Key))
@@ -1473,11 +1471,9 @@ namespace FeiSharpStudio
                                     }
                                     args.Add(EvaluateExpression(ParseExpression()));
                                 }
-                                Advance(); // 消耗 ')'
-                            }
+                                Advance();                             }
 
-                            // 调用方法并获取返回值
-                            returnValue = classInfo.CallMethod(funcorvarname, args, this);
+                                                        returnValue = classInfo.CallMethod(funcorvarname, args, this);
                             if (returnValue != null)
                             {
                                 _variables[$"{name}:return"] = returnValue;
@@ -1488,12 +1484,10 @@ namespace FeiSharpStudio
                         {
                             funcorvarname = Peek().Value;
                             isFunc = false;
-                            // 变量已经添加到 _variables 中了，不需要额外处理
-                        }
+                                                    }
                     }
 
-                    // 将实例变量中可能被修改的值同步回 classInfo
-                    foreach (var item in classInfo.Variables.Keys.ToList())
+                                        foreach (var item in classInfo.Variables.Keys.ToList())
                     {
                         if (_variables.ContainsKey(item))
                         {
@@ -1504,18 +1498,12 @@ namespace FeiSharpStudio
             }
             finally
             {
-                // ============================================
-                // 恢复原始变量（关键部分）
-                // ============================================
-
-                // 1. 恢复所有原始变量
+                                                
                 _variables.Clear();
                 foreach (var item in savedVariables)
                 {
                     _variables[item.Key] = item.Value;
                 }
-
-                // 2. 恢复结果字典
                 _results.Clear();
                 foreach (var item in savedResults)
                 {
@@ -1757,15 +1745,13 @@ namespace FeiSharpStudio
 
                 while (_current < endPos && !IsAtEnd())
                 {
-                    // 跳过分号
-                    if (Peek().Type == TokenTypes.Punctuation && Peek().Value == ";")
+                                        if (Peek().Type == TokenTypes.Punctuation && Peek().Value == ";")
                     {
                         Advance();
                         continue;
                     }
 
-                    // 所有关键字都在这
-                    if (MatchKeyword(TokenKeywords._var))
+                                        if (MatchKeyword(TokenKeywords._var))
                     {
                         ParseVariableDeclaration();
                     }
@@ -2084,8 +2070,7 @@ namespace FeiSharpStudio
                     }
                     else
                     {
-                        // 表达式语句
-                        Expr expr = ParseExpression();
+                                                Expr expr = ParseExpression();
                         object result = EvaluateExpression(expr);
                         RememberItCandidate(result);
                         ConsumeOptionalSemicolon();
@@ -4565,20 +4550,17 @@ namespace FeiSharpStudio
             object left = EvaluateExpression(binExpr.Left);
             object right = EvaluateExpression(binExpr.Right);
 
-            // 快速路径：字符串和字符操作
-            if (left is string or char && right is string or char)
+                        if (left is string or char && right is string or char)
             {
                 return EvaluateStringBinary(left, right, binExpr.Operator);
             }
 
-            // 快速路径：布尔操作
-            if (left is bool && right is bool)
+                        if (left is bool && right is bool)
             {
                 return EvaluateBoolBinary((bool)left, (bool)right, binExpr.Operator);
             }
 
-            // 类型统一和转换
-            if (left.GetType() != right.GetType())
+                        if (left.GetType() != right.GetType())
             {
                 if (!TryUnifyTypes(ref left, ref right))
                 {
@@ -4587,8 +4569,7 @@ namespace FeiSharpStudio
                 }
             }
 
-            // 字符串乘法特殊处理
-            if (binExpr.Operator == "*")
+                        if (binExpr.Operator == "*")
             {
                 if ((left is string or char && right is double) ||
                     (left is double && right is string or char))
@@ -4599,8 +4580,7 @@ namespace FeiSharpStudio
                 }
             }
 
-            // 数值运算（优化后的快速路径）
-            return EvaluateNumericBinary(left, right, binExpr.Operator);
+                        return EvaluateNumericBinary(left, right, binExpr.Operator);
         }
 
         private object EvaluateStringBinary(object left, object right, string op)
@@ -4639,16 +4619,14 @@ namespace FeiSharpStudio
             object originalRight = right;
             object originalLeft = left;
 
-            // 尝试将 right 转换为 left 的类型
-            try
+                        try
             {
                 right = Convert.ChangeType(right, leftType);
                 return true;
             }
             catch { }
 
-            // 尝试将 left 转换为 right 的类型
-            try
+                        try
             {
                 left = Convert.ChangeType(left, rightType);
                 right = originalRight;
@@ -4669,30 +4647,25 @@ namespace FeiSharpStudio
 
             try
             {
-                // 临时替换为新的 tokens 和变量
-                _tokens = tokens;
+                                _tokens = tokens;
                 _current = 0;
                 _variables = new Dictionary<string, object>(variables);
                 _functions = new Dictionary<string, FunctionInfo>(_functions);
                 _classInfos = CloneClassInfos(_classInfos);
                 _results = new Dictionary<string, object>();
 
-                // 执行语句
-                ParseStatements();
+                                ParseStatements();
 
-                // 返回执行后的变量
-                return new Dictionary<string, object>(_variables);
+                                return new Dictionary<string, object>(_variables);
             }
             finally
             {
-                // 合并变量更改（循环体内的变量修改需要保留）
-                foreach (var kv in _variables)
+                                foreach (var kv in _variables)
                 {
                     savedVariables[kv.Key] = kv.Value;
                 }
 
-                // 恢复状态
-                _tokens = savedTokens;
+                                _tokens = savedTokens;
                 _current = savedPosition;
                 _variables = savedVariables;
                 _functions = savedFunctions;
@@ -4702,8 +4675,7 @@ namespace FeiSharpStudio
         }
         private object EvaluateNumericBinary(object left, object right, string op)
         {
-            // 快速转换为数值（避免 ToString()）
-            double leftNum, rightNum;
+                        double leftNum, rightNum;
 
             try
             {
