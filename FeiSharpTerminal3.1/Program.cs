@@ -1322,7 +1322,7 @@ Thumbs.db
             {
                 if (!ExecutionCancellation.IsCancellationRequested)
                 {
-                    var errorPanel = new Panel($"[red]Runtime Error: {ex.Message}[/]")
+                    var errorPanel = new Panel($"[red]{ex.ErrorType}: {ex.Number}[/]\n{ex.Description}")
                         .Border(BoxBorder.Rounded)
                         .BorderStyle(Style.Parse("red"));
                     AnsiConsole.Write(errorPanel);

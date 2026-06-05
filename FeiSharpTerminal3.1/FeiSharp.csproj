@@ -23,6 +23,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="VerificationHarness\**\*.cs" />
+    <EmbeddedResource Remove="VerificationHarness\**\*" />
+    <None Remove="VerificationHarness\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="PublishAotCompressed" Version="1.0.5" />
     <PackageReference Include="Spectre.Console" Version="0.54.0" />
     <PackageReference Include="Spectre.Console.Cli" Version="0.53.1" />
