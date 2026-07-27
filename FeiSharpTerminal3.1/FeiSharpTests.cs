@@ -1,7 +1,15 @@
+using BenchmarkDotNet.Attributes;
 using FeiSharpStudio;
 using Spectre.Console;
 using System.Diagnostics;
 namespace FeiSharpTerminal3._1.Tests;
+[ShortRunJob]
+[MemoryDiagnoser]
+[RankColumn]
+public class QuickBenchmarkAttribute : Attribute
+{
+}
+[QuickBenchmark]
 public static class FeiSharpTests
 {
     private static int _passedTests = 0;
@@ -17,10 +25,30 @@ public static class FeiSharpTests
     }
     static (string Name, Action Test)[] tests = new (string Name, Action Test)[]
     {
+        ("Static Class Method Statement Test", () => {
+            RunFeiSharpCode(@"
+class Console {
+    public static function Log(txt) {
+        printnl(txt);
+    }
+}
+Console.Log(""Hello"");
+var result = 1;",
+                new ExpectedVariable("result", 1));
+        }),
         ("Character Literal Lexing Test", () => {
             AssertTokenSequence("'a'", new[]
             {
                 new Token(TokenTypes.Character, "a"),
+                new Token(TokenTypes.EndOfFile, "")
+            });
+        }),
+        ("Modifier Keyword Lexing Test", () => {
+            AssertTokenSequence("static abstract protected", new[]
+            {
+                new Token(TokenTypes.Keyword, "static"),
+                new Token(TokenTypes.Keyword, "abstract"),
+                new Token(TokenTypes.Keyword, "protected"),
                 new Token(TokenTypes.EndOfFile, "")
             });
         }),
@@ -109,14 +137,100 @@ var child = Child();
 var result = child.calc();",
                 new ExpectedVariable("result", 7));
         }),
+        ("Protected Method Inheritance Test", () => {
+            RunFeiSharpCode(@"
+class Base {
+    protected function seed() {
+        return 3;
+    }
+}
+class Child : Base {
+    public function calc() {
+        return base.seed() + 4;
+    }
+}
+var child = Child();
+var result = child.calc();",
+                new ExpectedVariable("result", 7));
+        }),
+        ("Protected Member Access Rejected Test", () => {
+            RunFeiSharpCode(@"
+class Demo {
+    protected function secret() {
+        return 9;
+    }
+    public function expose() {
+        return this.secret();
+    }
+}
+var demo = Demo();
+var ok = demo.expose();
+try {
+    var bad = demo.secret();
+} catch(ex) {
+    var errType = ex.type;
+    var errNo = ex.index;
+}",
+                new ExpectedVariable("ok", 9),
+                new ExpectedVariable("errType", "SemanticError"),
+                new ExpectedVariable("errNo", "FS3001"));
+        }),
+        ("Static Outside Class Rejected Test", () => {
+            RunFeiSharpCode(@"
+try {
+    static function addOne(v) {
+        return v + 1;
+    }
+} catch(ex) {
+    var errType = ex.type;
+    var errNo = ex.index;
+}",
+                new ExpectedVariable("errType", "SemanticError"),
+                new ExpectedVariable("errNo", "FS3001"));
+        }),
+        ("Static Var Outside Class Rejected Test", () => {
+            RunFeiSharpCode(@"
+try {
+    static var value = 1;
+} catch(ex) {
+    var errType = ex.type;
+    var errNo = ex.index;
+}",
+                new ExpectedVariable("errType", "SemanticError"),
+                new ExpectedVariable("errNo", "FS3001"));
+        }),
+        ("Static Class Method Invocation Test", () => {
+            RunFeiSharpCode(@"
+class Console {
+    public static function Log(txt) {
+        printnl(txt);
+        return txt;
+    }
+}
+var result = Console.Log(""Hello"");",
+                new ExpectedVariable("result", "Hello"));
+        }),
+        
+        ("Static Class Keyword-Like Method Invocation Test", () => {
+            RunFeiSharpCode(@"
+class Console {
+    public static var str = """";
+    public static function Write() {
+        return str;
+    }
+}
+Console.str = ""hello"";
+var result = Console.Write();",
+                new ExpectedVariable("result", "hello"));
+        }),
         ("Try Catch Error Metadata Test", () => {
             RunFeiSharpCode(@"
 try {
     throw ""boom"";
-} catch(type, describe, number) {
-    var errType = type;
-    var errDesc = describe;
-    var errNo = number;
+} catch(ex) {
+    var errType = ex.type;
+    var errDesc = ex.msg;
+    var errNo = ex.index;
 }",
                 new ExpectedVariable("errType", "UserException"),
                 new ExpectedVariable("errDesc", "boom"),
@@ -128,12 +242,58 @@ try {
     public function nope() {
         return 1;
     }
-} catch(type, describe, number) {
-    var errType = type;
-    var errNo = number;
+} catch(ex) {
+    var errType = ex.type;
+    var errNo = ex.index;
 }",
                 new ExpectedVariable("errType", "SemanticError"),
                 new ExpectedVariable("errNo", "FS3001"));
+        }),
+        ("Variable Modifier Access Test", () => {
+            RunFeiSharpCode(@"
+class Demo {
+    public var open = 3;
+    protected var shield = 4;
+    private var secret = 5;
+    static var shared = 6;
+    public function exposeSecret() {
+        return this.secret;
+    }
+    public function exposeShield() {
+        return this.shield;
+    }
+}
+var demo = Demo();
+var a = demo.open;
+var b = Demo.shared;
+var c = demo.exposeSecret();
+try {
+    var bad0 = demo.shared;
+} catch(ex) {
+    var errType0 = ex.type;
+    var errNo0 = ex.index;
+}
+try {
+    var bad1 = demo.secret;
+} catch(ex) {
+    var errType1 = ex.type;
+    var errNo1 = ex.index;
+}
+try {
+    var bad2 = demo.shield;
+} catch(ex) {
+    var errType2 = ex.type;
+    var errNo2 = ex.index;
+}",
+                new ExpectedVariable("a", 3),
+                new ExpectedVariable("b", 6),
+                new ExpectedVariable("c", 5),
+                new ExpectedVariable("errType0", "SemanticError"),
+                new ExpectedVariable("errNo0", "FS3001"),
+                new ExpectedVariable("errType1", "SemanticError"),
+                new ExpectedVariable("errNo1", "FS3001"),
+                new ExpectedVariable("errType2", "SemanticError"),
+                new ExpectedVariable("errNo2", "FS3001"));
         }),
         ("Assignment Syntax Test", () => {
             RunFeiSharpCode(@"
@@ -155,7 +315,7 @@ class Child : Base {
     }
 }
 class Config {
-    var defaultValue = 2;
+    static var defaultValue = 2;
 }
 Config.defaultValue = 7;
 var item = Child(0);
@@ -169,6 +329,18 @@ var r4 = Config.defaultValue;",
                 new ExpectedVariable("r2", 9),
                 new ExpectedVariable("r3", 3),
                 new ExpectedVariable("r4", 7));
+        }),
+        ("String Runtime Access Test", () => {
+            RunFeiSharpCode(@"
+var text = ""Hello"";
+var c1 = text[1];
+var len = text.Length;
+var part = text.Substring(1, 3);
+var idx = text.IndexOf(""ll"");",
+                new ExpectedVariable("c1", 'e'),
+                new ExpectedVariable("len", 5),
+                new ExpectedVariable("part", "ell"),
+                new ExpectedVariable("idx", 2));
         }),
         ("Array List Dictionary Syntax Test", () => {
             RunFeiSharpCode(@"
@@ -231,7 +403,7 @@ for(; false; ) {
 var a = 1;
 for(var i = 1; i < 5001; i = i + 1){}",new ExpectedVariable("a", 1));
         }),
-        ("Double For Speed Test(5000 times)", () => {
+        ("Double For Speed Test(100 x 100 times)", () => {
             RunFeiSharpCode(@"
 var nestSum = 0;
 for(var a = 0; a < 100; a = a + 1) {

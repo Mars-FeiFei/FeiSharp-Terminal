@@ -2,6 +2,7 @@ using FeiSharpStudio;
 using FeiSharpTerminal3._1;
 using FeiSharpTerminal3._1.Tests;
 using Spectre.Console;
+using System.ComponentModel.Design;
 using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -10,14 +11,14 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 namespace FeiSharp8._5RuntimeSdk;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
+
 public class Program
 {
-    [DllImport("kernel32.dll", SetLastError = true)]
-    static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint mode);
-    [DllImport("kernel32.dll", SetLastError = true)]
-    static extern bool GetConsoleMode(IntPtr handle, out uint mode);
-    [DllImport("kernel32.dll", SetLastError = true)]
-    static extern IntPtr GetStdHandle(int handle);
     static string FEISHARP_IMPORT_PATH = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FeiSharpImportFiles");
     public static string? MapPath(string vpath, string _applicationPath)
     {
@@ -33,12 +34,6 @@ public class Program
         path = path.Replace("/", "\\");
         return File.Exists(path) ? path : null;
     }
-    static void EnableVirtualTerminalProcessing()
-    {
-        var handle = GetStdHandle(STD_OUTPUT_HANDLE);
-        GetConsoleMode(handle, out uint mode);
-        SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
-    }
     const int STD_OUTPUT_HANDLE = -11;
     const uint ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
     static string CreateWavyUnderline(int length)
@@ -51,11 +46,6 @@ public class Program
         }
         return new string(wavyLine);
     }
-    [DllImport("kernel32.dll", ExactSpelling = true)]
-    static extern IntPtr GetConsoleWindow();
-    [DllImport("user32.dll")]
-    static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-    const int SW_MAXIMIZE = 3;
     static string GetUserCode()
     {
         global::System.String code = "";
@@ -232,6 +222,105 @@ public class Program
         }
         throw new FileNotFoundException("Unable to locate the FeiSharp runtime assembly.", bundledDllPath);
     }
+    public static string TransformCode(string code)
+    {
+        var result = new StringBuilder();
+        int i = 0;
+
+        while (i < code.Length)
+        {
+            char c = code[i];
+            if (c != '"')
+            {
+                result.Append(c);
+                i++;
+                continue;
+            }
+            int start = i;
+            i++;
+            var contentBuilder = new StringBuilder();
+            while (i < code.Length)
+            {
+                char ch = code[i];
+                if (ch == '"' && (i == 0 || code[i - 1] != '\\'))
+                {
+                    break;
+                }
+                contentBuilder.Append(ch);
+                i++;
+            }
+            string content = contentBuilder.ToString();
+            string replacement = ProcessContent(content);
+            result.Append(replacement);
+            if (i < code.Length && code[i] == '"')
+                i++;
+        }
+        return result.ToString();
+    }
+    private static string ProcessContent(string content)
+    {
+        var items = new List<(bool isExpr, string text)>();
+        int pos = 0;
+        while (pos < content.Length)
+        {
+            int startDollar = content.IndexOf("${", pos);
+            if (startDollar == -1)
+            {
+                if (pos < content.Length)
+                    items.Add((false, content.Substring(pos)));
+                break;
+            }
+            if (startDollar > pos)
+                items.Add((false, content.Substring(pos, startDollar - pos)));
+            int open = startDollar + 2;
+            int braceCount = 1;
+            int close = -1;
+            for (int j = open; j < content.Length; j++)
+            {
+                if (content[j] == '{')
+                    braceCount++;
+                else if (content[j] == '}')
+                {
+                    braceCount--;
+                    if (braceCount == 0)
+                    {
+                        close = j;
+                        break;
+                    }
+                }
+            }
+            if (close == -1)
+            {
+                items.Add((false, content.Substring(pos)));
+                break;
+            }
+            string expr = content.Substring(open, close - open);
+            items.Add((true, expr));
+            pos = close + 1;
+        }
+        if (!items.Exists(item => item.isExpr))
+        {
+            return "\"" + EscapeString(content) + "\"";
+        }
+        var parts = new List<string>();
+        foreach (var item in items)
+        {
+            if (item.isExpr)
+            {
+                parts.Add("tostr(" + item.text + ")");
+            }
+            else
+            {
+                parts.Add("\"" + EscapeString(item.text) + "\"");
+            }
+        }
+
+        return string.Join(" + ", parts);
+    }
+    private static string EscapeString(string s)
+    {
+        return s.Replace("\\", "\\\\").Replace("\"", "\\\"");
+    }
     static string GetWindowsRuntimeIdentifier()
     {
         return RuntimeInformation.OSArchitecture switch
@@ -320,15 +409,21 @@ public class Program
 using System.Text;
 using FeiSharp8._5RuntimeSdk;
 using FeiSharpTerminal3._1;
+class Program{
+    static void Main(string[] args)
+    {
+        Console.OutputEncoding = Encoding.Unicode;
+        Console.InputEncoding = Encoding.Unicode;
+        ExecutionCancellation.Initialize();
+        FeiSharpProgramData.AssemblyName = Guid.NewGuid().ToString("N");
+        FeiSharp8._5RuntimeSdk.Program._applicationPath = AppContext.BaseDirectory;
+        var sourceCode = Encoding.UTF8.GetString(Convert.FromBase64String("{{base64Source}}"));
+        FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode, args.Select(i => "{{"\\\""}}" + i + "{{"\\\""}}").ToArray());
+    }
+}
 
-Console.OutputEncoding = Encoding.Unicode;
-Console.InputEncoding = Encoding.Unicode;
-ExecutionCancellation.Initialize();
-FeiSharpProgramData.AssemblyName = Guid.NewGuid().ToString("N");
-FeiSharp8._5RuntimeSdk.Program._applicationPath = AppContext.BaseDirectory;
-var sourceCode = Encoding.UTF8.GetString(Convert.FromBase64String("{{base64Source}}"));
-FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
 """);
+            string[] args = [];
             if ((bool)isCleanBuildDirectory && Directory.Exists(Path.GetDirectoryName(outputExePath)))
             {
                 foreach (var item in Directory.GetFiles(Path.GetDirectoryName(outputExePath)))
@@ -408,7 +503,6 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
     public static async Task Main(string[] args)
     {
         #region <head></head>
-
         Console.OutputEncoding = Encoding.Unicode;
         Console.InputEncoding = Encoding.Unicode;
         ExecutionCancellation.Initialize();
@@ -422,14 +516,13 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
             File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "io_extend.fsc"), "function getcurrentfilepath()\r\n{\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfilepath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\n}\r\nfunction getcurrentfolderpath()\r\n{\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldgetcurrentfolderpath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\");\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\n}\r\nfunction mappath(vpath)\r\n{\r\n    var ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga = \"\";\r\n    oldmappath(\"ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga\", vpath);\r\n    return ahsjakfgskfgjagfuwukagsjfjaaskgfhlskwwga;\r\n}");
             File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "text.fsc"), "function strfromindex(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\n{\r\n    oldstrfromindex(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\n}\r\nfunction strindexof(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\n{\r\n    oldindexof(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\n}\r\nfunction strreplace(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\n{\r\n    oldstrreplafasfasfwfdsafeweeasadce(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad, bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\n}\r\nfunction strlen(afasfasfwfdsafeweeasad)\r\n{\r\n    oldstrlen(\"ccasfasgfagwgeegta\", afasfasfwfdsafeweeasad);\r\n    return ccasfasgfagwgeegta;\r\n}\r\nfunction substr(afasfasfwfdsafeweeasad,bahsdhfhashdhsahdaf)\r\n{\r\n    oldsubstr(afasfasfwfdsafeweeasad, \"ccasfasgfagwgeegta\", bahsdhfhashdhsahdaf);\r\n    return ccasfasgfagwgeegta;\r\n}");
             File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "support.fsc"), "var sign = \"{#,:,&,|,.,],[,!,<,>,=,^,/,*,-,+,;,(,),$,},//\";\r\nvar runProg = \"feisharp <src-code-file>\";");
-            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "support.fsc"), "");
+            File.WriteAllText(Path.Combine(FEISHARP_IMPORT_PATH, "network.fsc"), "");
 
         }
         if (args.Length == 0)
             FeiSharpTests.RunAllTests();
         TryConfigureConsole(() => Console.CursorSize = 25);
         FeiSharpProgramData.AssemblyName = Guid.NewGuid().ToString("N");
-        TryConfigureConsole(EnableVirtualTerminalProcessing);
         TryConfigureConsole(() => Console.CursorVisible = true);
         TryConfigureConsole(() => Console.Title = dynamicTitle);
 
@@ -447,7 +540,7 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
 
 
         var infoPanel = new Panel(
-            "[grey]FeiSharp 10.0 (tags/v10.0, Apr 7 2026, 20:49:47) MSC v.1942 64 bit (AMD64) on win32[/]\n" +
+            "[grey]FeiSharp 10.0 (tags/v10.0, Jul 26 2026, 13:06:58) MSC v.2026 64 bit (AMD64) on win32[/]\n" +
             "[grey]Type [green]\"help\"[/], [green]\"copyright\"[/], [green]\"credits\"[/] or [green]\"license\"[/] for more information.[/]")
             .Border(BoxBorder.Rounded)
             .BorderStyle(Style.Parse("grey"))
@@ -508,7 +601,7 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
 
             global::System.String sourceCode = File.ReadAllText(sourcePath);
             _applicationPath = sourcePath;
-            RunFeiSharpCodeWithProProcesser(sourceCode);
+            RunFeiSharpCodeWithProProcesser(sourceCode, args.Skip(1).ToArray());
             AnsiConsole.Markup("[grey]Press any key to continue...[/]");
             Console.ReadKey(true);
             _applicationPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
@@ -517,279 +610,269 @@ FeiSharp8._5RuntimeSdk.Program.RunFeiSharpCodeWithProProcesser(sourceCode);
         FeiSharpProgramData.main_function_run = true;
         while (true)
         {
-
-            var prompt = new TextPath(Directory.GetCurrentDirectory())
+            try
+            {
+                var prompt = new TextPath(Directory.GetCurrentDirectory())
                 .RootColor(Color.Red)
                 .SeparatorColor(Color.Green)
                 .StemColor(Color.Blue)
                 .LeafColor(Color.Yellow);
 
-            AnsiConsole.Write(prompt);
-            AnsiConsole.Markup("[cyan1]>[/] ");
+                AnsiConsole.Write(prompt);
+                AnsiConsole.Markup("[cyan1]>[/] ");
 
-            global::System.String? command = null;
-            try
-            {
-                command = Console.ReadLine();
-            }
-            catch (OperationCanceledException)
-            {
-
-                Console.WriteLine();
-                if (ExecutionCancellation._isExecuting)
+                global::System.String? command = null;
+                try
                 {
-
-                    ExecutionCancellation.CancelExecution();
-                    AnsiConsole.MarkupLine("[yellow]Execution cancelled[/]");
+                    command = Console.ReadLine();
                 }
-                continue;
-            }
-
-
-            if (command == null)
-            {
-                Console.WriteLine();
-                if (ExecutionCancellation._isExecuting)
+                catch (OperationCanceledException)
                 {
-                    ExecutionCancellation.CancelExecution();
-                    AnsiConsole.MarkupLine("[yellow]Execution cancelled[/]");
-                }
-                else
-                {
-                    AnsiConsole.MarkupLine("[yellow]Use 'exit' to quit FeiSharp[/]");
-                }
-                continue;
-            }
 
-
-            if (string.IsNullOrWhiteSpace(command))
-            {
-                continue;
-            }
-            if (command == "exit")
-            {
-                AnsiConsole.MarkupLine("[red]Shutting down FeiSharp... Goodbye![/]");
-                global::System.Environment.Exit(0);
-            }
-            else if (command == "ui")
-            {
-                AnsiConsole.Markup("[cyan]Source File: [/]");
-                string path = Console.ReadLine();
-                string currentProcessPath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "feisharp.exe");
-                string exePath = Path.ChangeExtension(currentProcessPath, ".exe").Replace("feisharp.exe", "UiG.exe").Replace("FeiSharpTerminal3.1\\bin\\Debug\\net8.0-windows", "UiG\\bin\\Debug\\net8.0-windows");
-
-                var statusPanel = new Panel($"[yellow]Launching UI with file:[/] [green]{path}[/]")
-                    .Border(BoxBorder.Rounded)
-                    .BorderStyle(Style.Parse("yellow"));
-                AnsiConsole.Write(statusPanel);
-
-                Process.Start(exePath, path);
-            }
-            else if (command.StartsWith("open"))
-            {
-                string path = "";
-                if (command == "open")
-                {
-                    path = Directory.GetCurrentDirectory();
-                }
-                else
-                {
-                    path = command.Split(' ')[1];
-                }
-                Task.Factory.StartNew(() =>
-                {
-                    Process.Start(new ProcessStartInfo
+                    Console.WriteLine();
+                    if (ExecutionCancellation._isExecuting)
                     {
-                        FileName = "code.exe",
-                        Arguments = $"--log=off \"{path}\"",
-                        UseShellExecute = true,
-                        CreateNoWindow = true
-                    });
-                });
-                if (Console.CursorTop > 0)
-                {
-                    int currentLeft = Console.CursorLeft;
-                    int currentTop = Console.CursorTop;
-                    Console.SetCursorPosition(0, currentTop - 1);
-                }
-                Thread.Sleep(500);
 
-            }
-            else if (command.StartsWith("explorer"))
-            {
-                string path = "";
-                if (command == "explorer")
-                {
-                    path = Directory.GetCurrentDirectory();
-                }
-                else
-                {
-                    path = command.Split(' ')[1];
-                }
-                Task.Factory.StartNew(() =>
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = "explorer.exe",
-                        Arguments = $"\"{path}\"",
-                        UseShellExecute = true,
-                        CreateNoWindow = true
-                    });
-                });
-                Thread.Sleep(500);
-
-            }
-            else if (command == "run")
-            {
-                ChangeDynamicTitle(EDT_CDE);
-                AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Input your code... Enter 'exit' to exit this mode...[/]");
-                var rule1 = new Rule("[yellow]Code Input Mode[/]")
-                {
-                    Style = Style.Parse("green"),
-                    Justification = Justify.Center
-                };
-                AnsiConsole.Write(rule1);
-                RunFeiSharpCodeWithProProcesser(GetUserCode());
-                ChangeDynamicTitle(IN_CMD);
-
-            }
-            else if (command == "file")
-            {
-                AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Input the file path...[/]");
-                AnsiConsole.Markup("[cyan]File Path: [/]");
-                string path = Console.ReadLine();
-                string? sourcePath = ResolveFeiSharpSourcePath(path);
-                if (sourcePath == null)
-                {
-                    var errorPanel = new Panel($"[red]✗ File not found:[/] {path.EscapeMarkup()}")
-                        .Border(BoxBorder.Rounded)
-                        .BorderStyle(Style.Parse("red"));
-                    AnsiConsole.Write(errorPanel);
+                        ExecutionCancellation.CancelExecution();
+                        AnsiConsole.MarkupLine("[yellow]Execution cancelled[/]");
+                    }
                     continue;
                 }
 
-                var statusPanel = new Panel($"[yellow]Loading file:[/] [green]{sourcePath}[/]")
-                    .Border(BoxBorder.Rounded)
-                    .BorderStyle(Style.Parse("green"));
-                AnsiConsole.Write(statusPanel);
 
-                global::System.String sourceCode = File.ReadAllText(sourcePath);
-                _applicationPath = sourcePath;
-
-                RunFeiSharpCodeWithProProcesser(sourceCode);
-
-                _applicationPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            }
-            else if (command == "build" || command.StartsWith("build "))
-            {
-                string sourceInput = command.Length > 5 ? command[5..].Trim() : string.Empty;
-                List<string> feiprojs = [];
-                if (string.IsNullOrWhiteSpace(sourceInput))
+                if (command == null)
                 {
-                    foreach (var item in Directory.GetFiles(Directory.GetCurrentDirectory()))
+                    Console.WriteLine();
+                    if (ExecutionCancellation._isExecuting)
                     {
-                        if (item.EndsWith(".feiproj"))
-                        {
-                            feiprojs.Add(item);
-                        }
-                    }
-                    if (feiprojs.Count == 1)
-                    {
-                        sourceInput = feiprojs[0];
+                        ExecutionCancellation.CancelExecution();
+                        AnsiConsole.MarkupLine("[yellow]Execution cancelled[/]");
                     }
                     else
                     {
-                        feiprojs.Add("Others");
-                        sourceInput = AnsiConsole.Prompt(
-    new SelectionPrompt<string>()
-        .Title("What source file would you like?")
-        .AddChoices(feiprojs.ToArray())
-);
+                        AnsiConsole.MarkupLine("[yellow]Use 'exit' to quit FeiSharp[/]");
                     }
-                    if (sourceInput == "Others")
-                    {
-                        AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Input the source file or project path...[/]");
-                        AnsiConsole.Markup("[cyan]Source Path: [/]");
-                        sourceInput = Console.ReadLine() ?? string.Empty;
-                    }
+                    continue;
                 }
-                string? outputInput = "out\\feisharp-sdk-10.0-release\\" + Path.GetFileNameWithoutExtension(sourceInput) + ".exe";
-                await AnsiConsole.Status()
-                    .StartAsync("[yellow]Building executable...[/]", async ctx =>
+
+
+                if (string.IsNullOrWhiteSpace(command))
+                {
+                    continue;
+                }
+                if (command == "exit")
+                {
+                    AnsiConsole.MarkupLine("[red]Shutting down FeiSharp... Goodbye![/]");
+                    global::System.Environment.Exit(0);
+                }
+                else if (command.StartsWith("cd"))
+                {
+                    Directory.SetCurrentDirectory(command.Split(' ')[1]);
+                }
+                else if (command.StartsWith("open"))
+                {
+                    string path = "";
+                    if (command == "open")
                     {
-                        ChangeDynamicTitle("Generate Native Code");
-                        if (TryBuildExecutable(sourceInput, outputInput, out string builtExePath, out string buildError))
+                        path = Directory.GetCurrentDirectory();
+                    }
+                    else
+                    {
+                        path = command.Split(' ')[1];
+                    }
+                    Task.Factory.StartNew(() =>
+                    {
+                        Process.Start(new ProcessStartInfo
                         {
-                            var successPanel = new Panel($"[green]✓ Build completed:[/] [yellow]{builtExePath}[/]")
-                                .Border(BoxBorder.Rounded)
-                                .BorderStyle(Style.Parse("green"));
-                            AnsiConsole.Write(successPanel);
+                            FileName = "code.exe",
+                            Arguments = $"--log=off \"{path}\"",
+                            UseShellExecute = true,
+                            CreateNoWindow = true
+                        });
+                    });
+                    if (Console.CursorTop > 0)
+                    {
+                        int currentLeft = Console.CursorLeft;
+                        int currentTop = Console.CursorTop;
+                        Console.SetCursorPosition(0, currentTop - 1);
+                    }
+                    Thread.Sleep(500);
+
+                }
+                else if (command.StartsWith("explorer"))
+                {
+                    string path = "";
+                    if (command == "explorer")
+                    {
+                        path = Directory.GetCurrentDirectory();
+                    }
+                    else
+                    {
+                        path = command.Split(' ')[1];
+                    }
+                    Task.Factory.StartNew(() =>
+                    {
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = "explorer.exe",
+                            Arguments = $"\"{path}\"",
+                            UseShellExecute = true,
+                            CreateNoWindow = true
+                        });
+                    });
+                    Thread.Sleep(500);
+
+                }
+                else if (command.StartsWith("run"))
+                {
+                    ChangeDynamicTitle(EDT_CDE);
+                    AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Input your code... Enter 'exit' to exit this mode...[/]");
+                    var rule1 = new Rule("[yellow]Code Input Mode[/]")
+                    {
+                        Style = Style.Parse("green"),
+                        Justification = Justify.Center
+                    };
+                    AnsiConsole.Write(rule1);
+                    RunFeiSharpCodeWithProProcesser(GetUserCode(), command.Split(' ').Skip(1).ToArray());
+                    ChangeDynamicTitle(IN_CMD);
+                }
+                else if (command == "file")
+                {
+                    AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Input the file path...[/]");
+                    AnsiConsole.Markup("[cyan]File Path: [/]");
+                    string path = Console.ReadLine();
+                    string? sourcePath = ResolveFeiSharpSourcePath(path);
+                    if (sourcePath == null)
+                    {
+                        var errorPanel = new Panel($"[red]✗ File not found:[/] {path.EscapeMarkup()}")
+                            .Border(BoxBorder.Rounded)
+                            .BorderStyle(Style.Parse("red"));
+                        AnsiConsole.Write(errorPanel);
+                        continue;
+                    }
+
+                    var statusPanel = new Panel($"[yellow]Loading file:[/] [green]{sourcePath}[/]")
+                        .Border(BoxBorder.Rounded)
+                        .BorderStyle(Style.Parse("green"));
+                    AnsiConsole.Write(statusPanel);
+
+                    global::System.String sourceCode = File.ReadAllText(sourcePath);
+                    _applicationPath = sourcePath;
+
+                    RunFeiSharpCodeWithProProcesser(sourceCode);
+
+                    _applicationPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                }
+                else if (command == "build" || command.StartsWith("build "))
+                {
+                    string sourceInput = command.Length > 5 ? command[5..].Trim() : string.Empty;
+                    List<string> feiprojs = [];
+                    if (string.IsNullOrWhiteSpace(sourceInput))
+                    {
+                        foreach (var item in Directory.GetFiles(Directory.GetCurrentDirectory()))
+                        {
+                            if (item.EndsWith(".feiproj"))
+                            {
+                                feiprojs.Add(item);
+                            }
+                        }
+                        if (feiprojs.Count == 1)
+                        {
+                            sourceInput = feiprojs[0];
                         }
                         else
                         {
-                            var errorPanel = new Panel($"[red]✗ Build failed:[/] {buildError.EscapeMarkup()}")
-                                .Border(BoxBorder.Rounded)
-                                .BorderStyle(Style.Parse("red"));
-                            AnsiConsole.Write(errorPanel);
+                            feiprojs.Add("Others");
+                            sourceInput = AnsiConsole.Prompt(
+        new SelectionPrompt<string>()
+            .Title("What source file would you like?")
+            .AddChoices(feiprojs.ToArray())
+    );
                         }
-                        ChangeDynamicTitle(IN_CMD);
-                        await Task.CompletedTask;
-                    });
-            }
-            else if (command == "pwd")
-            {
-                var path = new TextPath(Directory.GetCurrentDirectory())
-                    .RootColor(Color.Red)
-                    .SeparatorColor(Color.Green)
-                    .StemColor(Color.Blue)
-                    .LeafColor(Color.Yellow);
-
-                AnsiConsole.Markup("[cyan]Current Directory: [/]");
-                AnsiConsole.Write(path);
-                AnsiConsole.WriteLine();
-            }
-            else if (command == "cd..")
-            {
-                var oldPath = Directory.GetCurrentDirectory();
-                Directory.SetCurrentDirectory(Directory.GetParent(Directory.GetCurrentDirectory()).FullName);
-                var newPath = Directory.GetCurrentDirectory();
-
-                AnsiConsole.MarkupLine($"[grey]Changed directory from[/] [red]{oldPath}[/] [grey]to[/] [green]{newPath}[/]");
-            }
-            else if (command.StartsWith("cd "))
-            {
-                var oldPath = Directory.GetCurrentDirectory();
-                Directory.SetCurrentDirectory(command.Split(' ')[1]);
-                var newPath = Directory.GetCurrentDirectory();
-
-                AnsiConsole.MarkupLine($"[grey]Changed directory from[/] [red]{oldPath}[/] [grey]to[/] [green]{newPath}[/]");
-            }
-            else if (command == "cls" || command == "clear")
-            {
-                Console.Clear();
-
-
-                AnsiConsole.Write(
-                    new FigletText("FeiSharp")
-                        .Color(Color.Cyan1));
-            }
-            else if (command.StartsWith("create "))
-            {
-                if (command.Split(' ').Length == 3)
+                        if (sourceInput == "Others")
+                        {
+                            AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Input the source file or project path...[/]");
+                            AnsiConsole.Markup("[cyan]Source Path: [/]");
+                            sourceInput = Console.ReadLine() ?? string.Empty;
+                        }
+                    }
+                    string? outputInput = "out\\feisharp-sdk-10.0-release\\" + Path.GetFileNameWithoutExtension(sourceInput) + ".exe";
+                    await AnsiConsole.Status()
+                        .StartAsync("[yellow]Building executable...[/]", async ctx =>
+                        {
+                            ChangeDynamicTitle("Generate Native Code");
+                            if (TryBuildExecutable(sourceInput, outputInput, out string builtExePath, out string buildError))
+                            {
+                                var successPanel = new Panel($"[green]✓ Build completed:[/] [yellow]{builtExePath}[/]")
+                                    .Border(BoxBorder.Rounded)
+                                    .BorderStyle(Style.Parse("green"));
+                                AnsiConsole.Write(successPanel);
+                            }
+                            else
+                            {
+                                var errorPanel = new Panel($"[red]✗ Build failed:[/] {buildError.EscapeMarkup()}")
+                                    .Border(BoxBorder.Rounded)
+                                    .BorderStyle(Style.Parse("red"));
+                                AnsiConsole.Write(errorPanel);
+                            }
+                            ChangeDynamicTitle(IN_CMD);
+                            await Task.CompletedTask;
+                        });
+                }
+                else if (command == "pwd")
                 {
-                    string name = string.Concat(command.Split(' ')[2].Select(c => Path.GetInvalidPathChars().Contains(c) ? '_' : c)).Trim();
-                    switch (command.Split(' ')[1])
+                    var path = new TextPath(Directory.GetCurrentDirectory())
+                        .RootColor(Color.Red)
+                        .SeparatorColor(Color.Green)
+                        .StemColor(Color.Blue)
+                        .LeafColor(Color.Yellow);
+
+                    AnsiConsole.Markup("[cyan]Current Directory: [/]");
+                    AnsiConsole.Write(path);
+                    AnsiConsole.WriteLine();
+                }
+                else if (command == "cd..")
+                {
+                    var oldPath = Directory.GetCurrentDirectory();
+                    Directory.SetCurrentDirectory(Directory.GetParent(Directory.GetCurrentDirectory()).FullName);
+                    var newPath = Directory.GetCurrentDirectory();
+
+                    AnsiConsole.MarkupLine($"[grey]Changed directory from[/] [red]{oldPath}[/] [grey]to[/] [green]{newPath}[/]");
+                }
+                else if (command.StartsWith("cd "))
+                {
+                    var oldPath = Directory.GetCurrentDirectory();
+                    Directory.SetCurrentDirectory(command.Split(' ')[1]);
+                    var newPath = Directory.GetCurrentDirectory();
+
+                    AnsiConsole.MarkupLine($"[grey]Changed directory from[/] [red]{oldPath}[/] [grey]to[/] [green]{newPath}[/]");
+                }
+                else if (command == "cls" || command == "clear")
+                {
+                    Console.Clear();
+
+
+                    AnsiConsole.Write(
+                        new FigletText("FeiSharp")
+                            .Color(Color.Cyan1));
+                }
+                else if (command.StartsWith("create "))
+                {
+                    if (command.Split(' ').Length == 3)
                     {
-                        case "Console":
-                            Directory.CreateDirectory(name);
-                            Directory.SetCurrentDirectory(name);
-                            File.WriteAllText($"test_{name}1.fsc", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction test()\n{\n    print(\"Hello, World!\");\n}\n");
-                            File.WriteAllText($"main_{name}.fsc", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction main()\n{\n    printnl(\"Hello, World!\");\n}\n");
-                            File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
-                            File.WriteAllText("api.fsc", "anno(\"Create your own API functions in this file\");");
-                            File.WriteAllText("README.md", $"This is the console project {name}");
-                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create console project {name} by FeiSharp Target SDK 10.0\n");
-                            File.WriteAllText(".gitignore", @"
+                        string name = string.Concat(command.Split(' ')[2].Select(c => Path.GetInvalidPathChars().Contains(c) ? '_' : c)).Trim();
+                        switch (command.Split(' ')[1])
+                        {
+                            case "Console":
+                                Directory.CreateDirectory(name);
+                                Directory.SetCurrentDirectory(name);
+                                File.WriteAllText($"test_{name}1.fsc", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction test()\n{\n    print(\"Hello, World!\");\n}\n");
+                                File.WriteAllText($"main_{name}.fsc", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction main()\n{\n    printnl(\"Hello, World!\");\n}\n");
+                                File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
+                                File.WriteAllText("api.fsc", "anno(\"Create your own API functions in this file\");");
+                                File.WriteAllText("README.md", $"This is the console project {name}");
+                                File.WriteAllText($"{name}.log", $"{DateTime.Now} Create console project {name} by FeiSharp Target SDK 10.0\n");
+                                File.WriteAllText(".gitignore", @"
 out/
 *.exe
 *.dll
@@ -799,8 +882,8 @@ out/
 .DS_Store
 Thumbs.db
 ");
-                            File.WriteAllText($"license.txt", "Your license file, for example: MIT");
-                            File.WriteAllText($"{name}.feiproj", @$"{{
+                                File.WriteAllText($"license.txt", "Your license file, for example: MIT");
+                                File.WriteAllText($"{name}.feiproj", @$"{{
     ""project_name"": ""{name}"",
     ""project_main_file"": ""main_{name}.fsc"",
     ""sdk_version"": 10.0,
@@ -808,11 +891,11 @@ Thumbs.db
     ""clean_build_directory"": true,
     ""target_platform"": ""win-x64""
 }}");
-                            break;
-                        case "API":
-                            Directory.CreateDirectory(name);
-                            Directory.SetCurrentDirectory(name);
-                            File.WriteAllText($"{name}.feiproj", @$"{{
+                                break;
+                            case "API":
+                                Directory.CreateDirectory(name);
+                                Directory.SetCurrentDirectory(name);
+                                File.WriteAllText($"{name}.feiproj", @$"{{
     ""project_name"": ""{name}"",
     ""project_main_file"": ""main_{name}.fsc"",
     ""sdk_version"": 10.0,
@@ -820,11 +903,11 @@ Thumbs.db
     ""clean_build_directory"": true,
     ""target_platform"": ""win-x64""
 }}");
-                            File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction test()\n{\n    print(\"Hello, World!\");\n}\ntest();");
-                            File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
-                            File.WriteAllText("api.fsc", "anno(\"Create your own API functions in this file\");");
-                            File.WriteAllText("README.md", $"This is the api project {name}");
-                            File.WriteAllText(".gitignore", @"
+                                File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nimport \"~/api.fsc\";\nfunction test()\n{\n    print(\"Hello, World!\");\n}\ntest();");
+                                File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
+                                File.WriteAllText("api.fsc", "anno(\"Create your own API functions in this file\");");
+                                File.WriteAllText("README.md", $"This is the api project {name}");
+                                File.WriteAllText(".gitignore", @"
 out/
 *.exe
 *.dll
@@ -834,13 +917,13 @@ out/
 .DS_Store
 Thumbs.db
 ");
-                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 10.0\n");
-                            File.WriteAllText($"license.txt", "Your license file, for example: MIT");
-                            break;
-                        case "Data":
-                            Directory.CreateDirectory(name);
-                            Directory.SetCurrentDirectory(name);
-                            File.WriteAllText($"{name}.feiproj", @$"{{
+                                File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 10.0\n");
+                                File.WriteAllText($"license.txt", "Your license file, for example: MIT");
+                                break;
+                            case "Data":
+                                Directory.CreateDirectory(name);
+                                Directory.SetCurrentDirectory(name);
+                                File.WriteAllText($"{name}.feiproj", @$"{{
     ""project_name"": ""{name}"",
     ""project_main_file"": ""main_{name}.fsc"",
     ""sdk_version"": 10.0,
@@ -848,10 +931,10 @@ Thumbs.db
     ""clean_build_directory"": true,
     ""target_platform"": ""win-x64""
 }}");
-                            File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nfunction test()\n{\n    print(\"Hello, World!\");\n}\ntest();");
-                            File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
-                            File.WriteAllText("README.md", $"This is the api project {name}");
-                            File.WriteAllText(".gitignore", @"
+                                File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/data.fsc\";\nfunction test()\n{\n    print(\"Hello, World!\");\n}\ntest();");
+                                File.WriteAllText("data.fsc", "anno(\"Set your data in this file\");");
+                                File.WriteAllText("README.md", $"This is the api project {name}");
+                                File.WriteAllText(".gitignore", @"
 out/
 *.exe
 *.dll
@@ -861,13 +944,13 @@ out/
 .DS_Store
 Thumbs.db
 ");
-                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 10.0\n");
-                            File.WriteAllText($"license.txt", "Your license file, for example: MIT");
-                            break;
-                        case "fUnitTest":
-                            Directory.CreateDirectory(name);
-                            Directory.SetCurrentDirectory(name);
-                            File.WriteAllText($"{name}.feiproj", @$"{{
+                                File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 10.0\n");
+                                File.WriteAllText($"license.txt", "Your license file, for example: MIT");
+                                break;
+                            case "fUnitTest":
+                                Directory.CreateDirectory(name);
+                                Directory.SetCurrentDirectory(name);
+                                File.WriteAllText($"{name}.feiproj", @$"{{
     ""project_name"": ""{name}"",
     ""project_main_file"": ""main_{name}.fsc"",
     ""sdk_version"": 10.0,
@@ -875,10 +958,10 @@ Thumbs.db
     ""clean_build_directory"": true,
     ""target_platform"": ""win-x64""
 }}");
-                            File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/test_content.fsc\";\nimport \"~/api.fsc\";\nfunction test()\n{\n    print(\"Hello, World!\");\n}\ntest();");
-                            File.WriteAllText("test_content.fsc", "anno(\"Set the test content\");");
-                            File.WriteAllText("README.md", $"This is the api project {name}");
-                            File.WriteAllText(".gitignore", @"
+                                File.WriteAllText($"test_{name}.fsc1", "import \"$prelude.fsc\";\nimport \"~/test_content.fsc\";\nimport \"~/api.fsc\";\nfunction test()\n{\n    print(\"Hello, World!\");\n}\ntest();");
+                                File.WriteAllText("test_content.fsc", "anno(\"Set the test content\");");
+                                File.WriteAllText("README.md", $"This is the api project {name}");
+                                File.WriteAllText(".gitignore", @"
 ouy/
 *.exe
 *.dll
@@ -888,107 +971,107 @@ ouy/
 .DS_Store
 Thumbs.db
 ");
-                            File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 10.0\n");
-                            File.WriteAllText($"license.txt", "Your license file, for example: MIT");
-                            break;
-                        default:
-                            var errorPanel = new Panel("[red]✗ The type isn't correct[/]")
-                                    .Border(BoxBorder.Rounded)
-                                    .BorderStyle(Style.Parse("red"));
-                            AnsiConsole.Write(errorPanel);
-                            break;
+                                File.WriteAllText($"{name}.log", $"{DateTime.Now} Create api project {name} by FeiSharp Target SDK 10.0\n");
+                                File.WriteAllText($"license.txt", "Your license file, for example: MIT");
+                                break;
+                            default:
+                                var errorPanel = new Panel("[red]✗ The type isn't correct[/]")
+                                        .Border(BoxBorder.Rounded)
+                                        .BorderStyle(Style.Parse("red"));
+                                AnsiConsole.Write(errorPanel);
+                                break;
+                        }
                     }
                 }
-            }
-            else if (command == "feedback")
-            {
-                AnsiConsole.Markup("[yellow]Please enter your feedback: [/]");
-                string feedback = Console.ReadLine();
+                else if (command == "feedback")
+                {
+                    AnsiConsole.Markup("[yellow]Please enter your feedback: [/]");
+                    string feedback = Console.ReadLine();
 
-                await AnsiConsole.Status()
-                    .StartAsync("[cyan]Sending feedback...[/]", async ctx =>
-                    {
-                        try
+                    await AnsiConsole.Status()
+                        .StartAsync("[cyan]Sending feedback...[/]", async ctx =>
                         {
-                            TcpClient client = new TcpClient(PublicIpFetcher.GetPublicIpAsync().Result, 6721);
                             try
                             {
-                                NetworkStream stream = client.GetStream();
-                                byte[] data = Encoding.UTF8.GetBytes(feedback);
-                                await stream.WriteAsync(data, 0, data.Length);
+                                TcpClient client = new TcpClient(PublicIpFetcher.GetPublicIpAsync().Result, 6721);
+                                try
+                                {
+                                    NetworkStream stream = client.GetStream();
+                                    byte[] data = Encoding.UTF8.GetBytes(feedback);
+                                    await stream.WriteAsync(data, 0, data.Length);
 
-                                var successPanel = new Panel("[green]✓ Feedback sent successfully![/]")
-                                    .Border(BoxBorder.Rounded)
-                                    .BorderStyle(Style.Parse("green"));
-                                AnsiConsole.Write(successPanel);
+                                    var successPanel = new Panel("[green]✓ Feedback sent successfully![/]")
+                                        .Border(BoxBorder.Rounded)
+                                        .BorderStyle(Style.Parse("green"));
+                                    AnsiConsole.Write(successPanel);
+                                }
+                                catch
+                                {
+                                    var errorPanel = new Panel("[red]✗ Failed to send feedback[/]")
+                                        .Border(BoxBorder.Rounded)
+                                        .BorderStyle(Style.Parse("red"));
+                                    AnsiConsole.Write(errorPanel);
+                                }
+                                finally
+                                {
+                                    client.Close();
+                                }
                             }
-                            catch
+                            catch (Exception ex)
                             {
-                                var errorPanel = new Panel("[red]✗ Failed to send feedback[/]")
-                                    .Border(BoxBorder.Rounded)
-                                    .BorderStyle(Style.Parse("red"));
-                                AnsiConsole.Write(errorPanel);
-                            }
-                            finally
-                            {
-                                client.Close();
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
-                        }
-                    });
-            }
-            else if (command.StartsWith("version"))
-            {
-                if (command == "version")
-                {
-                    var versionPanel = new Panel("[yellow]FeiSharp Target SDK 10.0[/]")
-                        .Header(" [cyan]Version Info[/] ")
-                        .Border(BoxBorder.Rounded)
-                        .BorderStyle(Style.Parse("blue"));
-                    AnsiConsole.Write(versionPanel);
-                }
-                else if (command.Split(' ')[1] == "--update")
-                {
-                    AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Finding update file from web...[/]");
-
-                    await AnsiConsole.Progress()
-                        .StartAsync(async ctx =>
-                        {
-                            var task = ctx.AddTask("[green]Checking for updates[/]");
-
-                            while (!task.IsFinished)
-                            {
-                                await Task.Delay(100);
-                                task.Increment(2);
+                                AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
                             }
                         });
-
-                    if (IsConnectedToInternet())
-                    {
-                        Thread.Sleep(Random.Shared.Next(1500, 4000));
-                        var noUpdatePanel = new Panel("[yellow]No updates available at this time.[/]")
-                            .Border(BoxBorder.Rounded)
-                            .BorderStyle(Style.Parse("yellow"));
-                        AnsiConsole.Write(noUpdatePanel);
-                    }
-                    else
-                    {
-                        var offlinePanel = new Panel("[red]You are currently offline.[/]")
-                            .Border(BoxBorder.Rounded)
-                            .BorderStyle(Style.Parse("red"));
-                        AnsiConsole.Write(offlinePanel);
-                    }
                 }
-                else if (command.Split(' ')[1] == "--select")
+                else if (command.StartsWith("version"))
                 {
-                    var version = AnsiConsole.Prompt(
-                        new SelectionPrompt<string>()
-                            .Title("[cyan]Please select a version:[/]")
-                            .PageSize(10)
-                            .AddChoices(new[] {
+                    if (command == "version")
+                    {
+                        var versionPanel = new Panel("[yellow]FeiSharp Target SDK 10.0[/]")
+                            .Header(" [cyan]Version Info[/] ")
+                            .Border(BoxBorder.Rounded)
+                            .BorderStyle(Style.Parse("blue"));
+                        AnsiConsole.Write(versionPanel);
+                    }
+                    else if (command.Split(' ')[1] == "--update")
+                    {
+                        AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Finding update file from web...[/]");
+
+                        await AnsiConsole.Progress()
+                            .StartAsync(async ctx =>
+                            {
+                                var task = ctx.AddTask("[green]Checking for updates[/]");
+
+                                while (!task.IsFinished)
+                                {
+                                    await Task.Delay(100);
+                                    task.Increment(2);
+                                }
+                            });
+
+                        if (IsConnectedToInternet())
+                        {
+                            Thread.Sleep(Random.Shared.Next(1500, 4000));
+                            var noUpdatePanel = new Panel("[yellow]No updates available at this time.[/]")
+                                .Border(BoxBorder.Rounded)
+                                .BorderStyle(Style.Parse("yellow"));
+                            AnsiConsole.Write(noUpdatePanel);
+                        }
+                        else
+                        {
+                            var offlinePanel = new Panel("[red]You are currently offline.[/]")
+                                .Border(BoxBorder.Rounded)
+                                .BorderStyle(Style.Parse("red"));
+                            AnsiConsole.Write(offlinePanel);
+                        }
+                    }
+                    else if (command.Split(' ')[1] == "--select")
+                    {
+                        var version = AnsiConsole.Prompt(
+                            new SelectionPrompt<string>()
+                                .Title("[cyan]Please select a version:[/]")
+                                .PageSize(10)
+                                .AddChoices(new[] {
                                 "FeiSharp Core 2.0",
                                 "FeiSharp Core 3.0",
                                 "FeiSharp Core 4.0",
@@ -998,173 +1081,178 @@ Thumbs.db
                                 "FeiSharp Target SDK 8.0",
                                 "FeiSharp Target SDK 9.0",
                                 "FeiSharp Target SDK 10.0 Release",
-                            }));
+                                }));
 
-                    AnsiConsole.Status()
-                        .Start("[yellow]Updating version...[/]", ctx =>
+                        AnsiConsole.Status()
+                            .Start("[yellow]Updating version...[/]", ctx =>
+                            {
+                                if (version == "FeiSharp Target SDK 10.0 Release")
+                                {
+                                    var successPanel = new Panel($"[red]× FeiSharp Target SDK 10.0 Release is current version now[/]")
+                                        .Border(BoxBorder.Rounded)
+                                        .BorderStyle(Style.Parse("red"));
+                                    AnsiConsole.Write(successPanel);
+                                    return;
+                                }
+                                Thread.Sleep(1500);
+
+                                if (IsConnectedToInternet())
+                                {
+                                    var successPanel = new Panel($"[green]✓ Successfully switched to {version}[/]")
+                                        .Border(BoxBorder.Rounded)
+                                        .BorderStyle(Style.Parse("green"));
+                                    AnsiConsole.Write(successPanel);
+                                }
+                                else
+                                {
+                                    var offlinePanel = new Panel("[red]Cannot connect to update server[/]")
+                                        .Border(BoxBorder.Rounded)
+                                        .BorderStyle(Style.Parse("red"));
+                                    AnsiConsole.Write(offlinePanel);
+                                }
+                            });
+                    }
+                }
+                else if (command == "license")
+                {
+                    var licensePanel = new Panel(
+                        "[yellow]Copyright (c) 2024-2026 Mars Fei[/]\n\n" +
+                        "[grey]Licensed under the Apache License, Version 2.0 (the \"License\");\n" +
+                        "you may not use this software except in compliance with the License.\n" +
+                        "You may obtain a copy of the License at[/]\n\n" +
+                        "[blue]http://www.apache.org/licenses/LICENSE-2.0.txt[/]\n\n" +
+                        "[grey]Unless required by applicable law or agreed to in writing, software\n" +
+                        "distributed under the License is distributed on an \"AS IS\" BASIS,\n" +
+                        "WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n" +
+                        "See the License for the specific language governing permissions and\n" +
+                        "limitations under the License.[/]")
+                        .Header(" [cyan]Apache License 2.0[/] ")
+                        .Border(BoxBorder.Rounded)
+                        .BorderStyle(Style.Parse("blue"))
+                        .Expand();
+
+                    AnsiConsole.Write(licensePanel);
+                }
+                else if (command == "resetColor")
+                {
+                    Console.ResetColor();
+                    AnsiConsole.MarkupLine("[green]Colors reset to default[/]");
+                }
+                else if (command == "color")
+                {
+                    var color = AnsiConsole.Prompt(
+                        new SelectionPrompt<ConsoleColor>()
+                            .Title("[cyan]Select a color:[/]")
+                            .PageSize(10)
+                            .AddChoices(Enum.GetValues<ConsoleColor>()));
+
+                    Console.ForegroundColor = color;
+                    AnsiConsole.MarkupLine($"[green]Color changed to {color}[/]");
+                }
+                else if (command.StartsWith("disable"))
+                {
+                    if (command.Split(' ')[1] == "main_function_run")
+                    {
+                        FeiSharpProgramData.main_function_run = false;
+                    }
+                }
+                else if (command.StartsWith("enable"))
+                {
+                    if (command.Split(' ')[1] == "main_function_run")
+                    {
+                        FeiSharpProgramData.main_function_run = true;
+                    }
+                }
+                else if (command.StartsWith("license "))
+                {
+                    global::System.String arg1 = command.Split(' ')[1];
+                    if (arg1 == "--type")
+                    {
+                        var typePanel = new Panel("[yellow]Apache License[/]")
+                            .Border(BoxBorder.Rounded)
+                            .BorderStyle(Style.Parse("green"));
+                        AnsiConsole.Write(typePanel);
+                    }
+                    else if (arg1 == "-v")
+                    {
+                        var versionPanel = new Panel("[yellow]2.0[/]")
+                            .Border(BoxBorder.Rounded)
+                            .BorderStyle(Style.Parse("green"));
+                        AnsiConsole.Write(versionPanel);
+                    }
+                }
+                else if (command == "copyright")
+                {
+                    var copyrightPanel = new Panel(
+                        "[yellow]Copyright (c) 2024-2026, Mars Fei[/]\n" +
+                        "[red]All Rights Reserved.[/]")
+                        .Header(" [cyan]Copyright Information[/] ")
+                        .Border(BoxBorder.Rounded)
+                        .BorderStyle(Style.Parse("blue"));
+
+                    AnsiConsole.Write(copyrightPanel);
+                    var copyrightPanel2 = new Panel(
+                        "[yellow]Copyright (c) 2024-2026, Savannah Yang[/]\n" +
+                        "[red]All Rights Reserved.[/]")
+                        .Header(" [cyan]Copyright Information[/] ")
+                        .Border(BoxBorder.Rounded)
+                        .BorderStyle(Style.Parse("blue"));
+
+                    AnsiConsole.Write(copyrightPanel2);
+                }
+                else if (command == "base")
+                {
+                    var basePanel = new Panel(
+                        "[cyan]FeiSharp is based on:[/]\n\n" +
+                        "  [yellow]- C# .NET 8.0[/]\n" +
+                        "  [yellow]- Microsoft IL[/]\n" +
+                        "  [yellow]- Native Binary Code[/]")
+                        .Header(" [green]Technology Stack[/] ")
+                        .Border(BoxBorder.Rounded)
+                        .BorderStyle(Style.Parse("green"));
+
+                    AnsiConsole.Write(basePanel);
+                }
+                else if (command == "credits")
+                {
+                    var credits = new Panel(
+                        "[yellow]Special thanks to:[/]\n\n" +
+                        "  [green]- Ben Bai[/]\n" +
+                        "  [green]- Yolanda Yang[/]\n" +
+                        "  [green]- Dean Liu[/]\n" +
+                        "  [green]- Savannah Yang[/]\n" +
+                        "  [green]- github.com[/]\n" +
+                        "  [green]- Git[/]\n" +
+                        "  [green]- Visual Studio[/]\n" +
+                        "  [green]- Visual Studio Code[/]\n" +
+                        "[grey]...and a cast of thousands for supporting FeiSharp development.[/]")
+                        .Header(" [cyan]Credits[/] ")
+                        .Border(BoxBorder.Rounded)
+                        .BorderStyle(Style.Parse("blue"))
+                        .Expand();
+
+                    AnsiConsole.Write(credits);
+                }
+                else if (command == "help" || command.StartsWith("help "))
+                {
+                    var parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    var specificCommand = parts.Length > 1 ? parts[1] : null;
+
+                    await HelpSystem.ShowInteractiveHelp(specificCommand);
+                }
+                else
+                {
+
+                    await AnsiConsole.Status()
+                        .StartAsync("[yellow]Executing code...[/]", async ctx =>
                         {
-                            if (version == "FeiSharp Target SDK 10.0 Release")
-                            {
-                                var successPanel = new Panel($"[red]× FeiSharp Target SDK 10.0 Release is current version now[/]")
-                                    .Border(BoxBorder.Rounded)
-                                    .BorderStyle(Style.Parse("red"));
-                                AnsiConsole.Write(successPanel);
-                                return;
-                            }
-                            Thread.Sleep(1500);
-
-                            if (IsConnectedToInternet())
-                            {
-                                var successPanel = new Panel($"[green]✓ Successfully switched to {version}[/]")
-                                    .Border(BoxBorder.Rounded)
-                                    .BorderStyle(Style.Parse("green"));
-                                AnsiConsole.Write(successPanel);
-                            }
-                            else
-                            {
-                                var offlinePanel = new Panel("[red]Cannot connect to update server[/]")
-                                    .Border(BoxBorder.Rounded)
-                                    .BorderStyle(Style.Parse("red"));
-                                AnsiConsole.Write(offlinePanel);
-                            }
+                            _parser = RunFeiSharpCodeWithProProcesser(command, null, _parser);
                         });
                 }
             }
-            else if (command == "license")
+            catch(Exception ex)
             {
-                var licensePanel = new Panel(
-                    "[yellow]Copyright (c) 2024-2026 Mars Fei[/]\n\n" +
-                    "[grey]Licensed under the Apache License, Version 2.0 (the \"License\");\n" +
-                    "you may not use this software except in compliance with the License.\n" +
-                    "You may obtain a copy of the License at[/]\n\n" +
-                    "[blue]http://www.apache.org/licenses/LICENSE-2.0.txt[/]\n\n" +
-                    "[grey]Unless required by applicable law or agreed to in writing, software\n" +
-                    "distributed under the License is distributed on an \"AS IS\" BASIS,\n" +
-                    "WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n" +
-                    "See the License for the specific language governing permissions and\n" +
-                    "limitations under the License.[/]")
-                    .Header(" [cyan]Apache License 2.0[/] ")
-                    .Border(BoxBorder.Rounded)
-                    .BorderStyle(Style.Parse("blue"))
-                    .Expand();
-
-                AnsiConsole.Write(licensePanel);
-            }
-            else if (command == "resetColor")
-            {
-                Console.ResetColor();
-                AnsiConsole.MarkupLine("[green]Colors reset to default[/]");
-            }
-            else if (command == "color")
-            {
-                var color = AnsiConsole.Prompt(
-                    new SelectionPrompt<ConsoleColor>()
-                        .Title("[cyan]Select a color:[/]")
-                        .PageSize(10)
-                        .AddChoices(Enum.GetValues<ConsoleColor>()));
-
-                Console.ForegroundColor = color;
-                AnsiConsole.MarkupLine($"[green]Color changed to {color}[/]");
-            }
-            else if (command.StartsWith("disable"))
-            {
-                if(command.Split(' ')[1] == "main_function_run")
-                {
-                    FeiSharpProgramData.main_function_run = false;
-                }
-            }
-            else if (command.StartsWith("enable"))
-            {
-                if (command.Split(' ')[1] == "main_function_run")
-                {
-                    FeiSharpProgramData.main_function_run = true;
-                }
-            }
-            else if (command.StartsWith("license "))
-            {
-                global::System.String arg1 = command.Split(' ')[1];
-                if (arg1 == "--type")
-                {
-                    var typePanel = new Panel("[yellow]Apache License[/]")
-                        .Border(BoxBorder.Rounded)
-                        .BorderStyle(Style.Parse("green"));
-                    AnsiConsole.Write(typePanel);
-                }
-                else if (arg1 == "-v")
-                {
-                    var versionPanel = new Panel("[yellow]2.0[/]")
-                        .Border(BoxBorder.Rounded)
-                        .BorderStyle(Style.Parse("green"));
-                    AnsiConsole.Write(versionPanel);
-                }
-            }
-            else if (command == "copyright")
-            {
-                var copyrightPanel = new Panel(
-                    "[yellow]Copyright (c) 2024-2026, Mars Fei[/]\n" +
-                    "[red]All Rights Reserved.[/]")
-                    .Header(" [cyan]Copyright Information[/] ")
-                    .Border(BoxBorder.Rounded)
-                    .BorderStyle(Style.Parse("blue"));
-
-                AnsiConsole.Write(copyrightPanel);
-                var copyrightPanel2 = new Panel(
-                    "[yellow]Copyright (c) 2024-2026, Savannah Yang[/]\n" +
-                    "[red]All Rights Reserved.[/]")
-                    .Header(" [cyan]Copyright Information[/] ")
-                    .Border(BoxBorder.Rounded)
-                    .BorderStyle(Style.Parse("blue"));
-
-                AnsiConsole.Write(copyrightPanel2);
-            }
-            else if (command == "base")
-            {
-                var basePanel = new Panel(
-                    "[cyan]FeiSharp is based on:[/]\n\n" +
-                    "  [yellow]- C# .NET 8.0[/]\n" +
-                    "  [yellow]- Microsoft IL[/]\n" +
-                    "  [yellow]- Native Binary Code[/]")
-                    .Header(" [green]Technology Stack[/] ")
-                    .Border(BoxBorder.Rounded)
-                    .BorderStyle(Style.Parse("green"));
-
-                AnsiConsole.Write(basePanel);
-            }
-            else if (command == "credits")
-            {
-                var credits = new Panel(
-                    "[yellow]Special thanks to:[/]\n\n" +
-                    "  [green]- Ben Bai[/]\n" +
-                    "  [green]- Yolanda Yang[/]\n" +
-                    "  [green]- Dean Liu[/]\n" +
-                    "  [green]- Savannah Yang[/]\n" +
-                    "  [green]- github.com[/]\n" +
-                    "  [green]- Git[/]\n" +
-                    "  [green]- Visual Studio[/]\n" +
-                    "  [green]- Visual Studio Code[/]\n" +
-                    "[grey]...and a cast of thousands for supporting FeiSharp development.[/]")
-                    .Header(" [cyan]Credits[/] ")
-                    .Border(BoxBorder.Rounded)
-                    .BorderStyle(Style.Parse("blue"))
-                    .Expand();
-
-                AnsiConsole.Write(credits);
-            }
-            else if (command == "help" || command.StartsWith("help "))
-            {
-                var parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                var specificCommand = parts.Length > 1 ? parts[1] : null;
-
-                await HelpSystem.ShowInteractiveHelp(specificCommand);
-            }
-            else
-            {
-
-                await AnsiConsole.Status()
-                    .StartAsync("[yellow]Executing code...[/]", async ctx =>
-                    {
-                        _parser = RunFeiSharpCodeWithProProcesser(command, _parser);
-                    });
+                AnsiConsole.MarkupLine($"[red]Error[/]: [yellow]{ex.Message}[/]");
             }
         }
     }
@@ -1197,10 +1285,10 @@ Thumbs.db
     }
     public static string ProProcesser(string scode)
     {
-        scode = RemoveCommentsSafe(scode);
+        scode = TransformCode(RemoveCommentsSafe(scode));
         if(scode.Contains("function main(") && FeiSharpProgramData.main_function_run)
         {
-            AnsiConsole.MarkupLine("[yellow]Warning: The code includes 'main' function, we will run it automatically, because 'main_function_run' feature is enabled, you can disable it in .feiproj file[/]");
+            AnsiConsole.MarkupLine("[yellow]Warning: The code includes 'main' function, we will run it automatically[/]");
             AnsiConsole.MarkupLine("[yellow]Tips: If you run code directly in terminal, you can execute the command 'disable main_function_run'[/]");
             AnsiConsole.MarkupLine("[yellow]And we don't suggest you to write another code in the outside of 'main' function[/]");
             scode += "main();";
@@ -1245,7 +1333,7 @@ Thumbs.db
         return scode;
     }
 
-    public static Parser RunFeiSharpCodeWithProProcesser(string scode, Parser _parser = null)
+    public static Parser RunFeiSharpCodeWithProProcesser(string scode, string[] args = null, Parser _parser = null)
     {
         ChangeDynamicTitle(EXEC);
 
@@ -1261,9 +1349,15 @@ Thumbs.db
             }
 
             global::System.String sourceCode = scode;
-            sourceCode = ProProcesser(sourceCode);
-
-
+            sourceCode = "function tostr(txt)\r\n{\r\n    cstr(txt, \"aSFGas\");\r\n    return aSFGas;\r\n}\n" + ProProcesser(sourceCode);
+            if(args != null && args.Length > 0)
+            {
+                sourceCode = $"var args = [{string.Join(',', args.Select(i => "\"" + i + "\"").ToArray())}];\n" + sourceCode;
+            }
+            else
+            {
+                sourceCode = "var args = [];\n" + sourceCode;
+            }
             if (ExecutionCancellation.IsCancellationRequested)
             {
                 AnsiConsole.MarkupLine("[yellow]Execution cancelled during preprocessing[/]");
@@ -1299,18 +1393,8 @@ Thumbs.db
                     parser._variables = _parser._variables;
                     parser._functions = _parser?._functions ?? new Dictionary<string, FunctionInfo>();
                 }
-
-
                 parser.ShouldCancel = () => ExecutionCancellation.IsCancellationRequested;
-                var rule1 = new Rule("[yellow]Code Output[/]")
-                {
-                    Style = Style.Parse("green"),
-                    Justification = Justify.Center
-                };
-                AnsiConsole.Write(rule1);
-
                 parser.ParseStatements();
-
                 return parser;
             }
             catch (OperationCanceledException)

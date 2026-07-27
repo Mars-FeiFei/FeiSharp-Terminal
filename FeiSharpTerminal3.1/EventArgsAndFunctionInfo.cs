@@ -8,6 +8,7 @@ namespace FeiSharpStudio
     public enum MethodVisibility
     {
         Private,
+        Protected,
         Public
     }
     public class FunctionInfo
@@ -16,6 +17,7 @@ namespace FeiSharpStudio
         public List<string> Parameter { get; internal set; }
         public List<Token> FunctionBody { get; internal set; }
         public MethodVisibility Visibility { get; internal set; }
+        public bool IsStatic { get; internal set; }
         public bool IsClassMember { get; internal set; }
         public string? DeclaringClassName { get; internal set; }
         public FunctionInfo(
@@ -23,6 +25,7 @@ namespace FeiSharpStudio
             IEnumerable<string> parameter,
             List<Token> functionBody,
             MethodVisibility visibility = MethodVisibility.Private,
+            bool isStatic = false,
             bool isClassMember = false,
             string? declaringClassName = null)
         {
@@ -30,6 +33,28 @@ namespace FeiSharpStudio
             Parameter = new(parameter);
             FunctionBody = functionBody;
             Visibility = visibility;
+            IsStatic = isStatic;
+            IsClassMember = isClassMember;
+            DeclaringClassName = declaringClassName;
+        }
+    }
+    public class VariableInfo
+    {
+        public string Name { get; internal set; }
+        public MethodVisibility Visibility { get; internal set; }
+        public bool IsStatic { get; internal set; }
+        public bool IsClassMember { get; internal set; }
+        public string? DeclaringClassName { get; internal set; }
+        public VariableInfo(
+            string name,
+            MethodVisibility visibility = MethodVisibility.Private,
+            bool isStatic = false,
+            bool isClassMember = false,
+            string? declaringClassName = null)
+        {
+            Name = name;
+            Visibility = visibility;
+            IsStatic = isStatic;
             IsClassMember = isClassMember;
             DeclaringClassName = declaringClassName;
         }

@@ -2,15 +2,29 @@
 using FeiSharpStudio.ClassInstance;
 using FeiSharpStudio.UUID;
 using FeiSharpTerminal3._1;
+using Spectre.Console;
 using System.Collections;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Linq;
 using System.Reflection;
+using System.Runtime.Loader;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using static FeiSharpStudio.Parser;
 using Exception = FeiSharpTerminal3._1.ExceptionThrow.Exception;
 namespace FeiSharpStudio
 {
+    internal class FeiSharpSpecialValue
+    {
+        internal string Value { get; init; }
+        internal FeiSharpSpecialValue(string value)
+        {
+            Value = value;
+        }
+    }
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Script engine uses reflection intentionally")]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Script engine uses reflection intentionally")]
     public class Parser
     {
         class CSharpType<T>
@@ -42,6 +56,7 @@ namespace FeiSharpStudio
         private string? _currentExecutionClassName;
         private string? _currentFunctionName;
         private object? _lastItValue;
+        private Dictionary<string, VariableInfo> _variableInfos = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, object> _variables = new();
         public Dictionary<string, FunctionInfo> _functions = new();
         public event EventHandler<OutputEventArgs> OutputEvent;
@@ -73,7 +88,7 @@ namespace FeiSharpStudio
             _variables.NewAdd("pi", Math.PI);
             _variables.NewAdd("e", Math.E);
             _variables.NewAdd("tau", Math.Tau);
-            _lastItValue = Math.Tau;
+            _variables.NewAdd("_", new FeiSharpSpecialValue("Dircards"));
         }
         protected virtual void OnOutputEvent(OutputEventArgs e)
         {
@@ -122,7 +137,7 @@ namespace FeiSharpStudio
                     {
                         ParseRunStatement();
                     }
-                    else if (MatchKeyword(TokenKeywords.export))
+                    else if (MatchWord(TokenKeywords.export))
                     {
                         ParseExportStatement();
                     }
@@ -150,6 +165,10 @@ namespace FeiSharpStudio
                     {
                         ParseABEStatement();
                     }
+                    else if (MatchKeyword("breakpoint"))
+                    {
+                        ParseBreakPointStatement();
+                    }
                     else if (MatchKeyword(TokenKeywords.helper))
                     {
                         ParseHelperStatement();
@@ -166,13 +185,8 @@ namespace FeiSharpStudio
                     {
                         ParseWhileStatement();
                     }
-                    else if (MatchKeyword(TokenKeywords._private))
+                    else if (TryParseModifiedDeclaration())
                     {
-                        ParseVisibilityQualifiedFunctionStatement(MethodVisibility.Private);
-                    }
-                    else if (MatchKeyword(TokenKeywords._public))
-                    {
-                        ParseVisibilityQualifiedFunctionStatement(MethodVisibility.Public);
                     }
                     else if (MatchKeyword(TokenKeywords.func))
                     {
@@ -442,6 +456,271 @@ namespace FeiSharpStudio
                 return;
             }
         }
+
+        private void ParseBreakPointStatement()
+        {
+            if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Excepted '('", "FS2003");
+            while (Peek().Value != ")" && Peek().Type != TokenTypes.Punctuation)
+            {
+                if (Peek().Value == "," && Peek().Type == TokenTypes.Punctuation)
+                {
+                    Advance();
+                    continue;
+                }
+                string key = Peek().Value;
+                Advance();
+                if (!MatchPunctuation(":")) throw new Exception(_tokens, _current, "Excepted ':'", "FS2003");
+                object thing = EvaluateExpression(ParseExpression());
+                if (key == "condition")
+                {
+                    if ((bool)thing)
+                    {
+                        BreakPointCore();
+                        return;
+                    }
+                }
+                DoBreakPoint(key, thing);
+                if (inf)
+                {
+                    inf = false;
+                    break;
+                }
+                Advance();
+            }
+            BreakPointCore();
+        }
+        public string ToDeepJson(object obj, int maxDepth = 10, int currentDepth = 0)
+        {
+            if (obj == null) return "null";
+            if (currentDepth >= maxDepth) return "\"...\"";
+            Type type = obj.GetType();
+            if (type.IsPrimitive || obj is string || obj is decimal || obj is DateTime ||
+                obj is Guid || obj is Enum)
+            {
+                return JsonSerializer.Serialize(obj);
+            }
+            if (obj is IEnumerable enumerable && obj is not string)
+            {
+                var items = new List<string>();
+                foreach (var item in enumerable)
+                {
+                    items.Add(ToDeepJson(item, maxDepth, currentDepth + 1));
+                }
+                return $"[{string.Join(",", items)}]";
+            }
+            var dict = new Dictionary<string, string>();
+            var allFields = GetAllFields(type);
+            foreach (var field in allFields)
+            {
+                if (IsCompilerGeneratedBackingField(field.Name)) continue;
+
+                try
+                {
+                    var value = field.GetValue(obj);
+                    string jsonValue = ToDeepJson(value, maxDepth, currentDepth + 1);
+                    dict[field.Name] = jsonValue;
+                }
+                catch
+                {
+                    dict[field.Name] = "\"<error>\"";
+                }
+            }
+            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            foreach (var prop in properties)
+            {
+                if (prop.GetIndexParameters().Length > 0) continue;
+                if (IsCompilerGeneratedBackingField(prop.Name)) continue;
+                if (prop.CanRead)
+                {
+                    try
+                    {
+                        var value = prop.GetValue(obj);
+                        string jsonValue = ToDeepJson(value, maxDepth, currentDepth + 1);
+                        dict[prop.Name] = jsonValue;
+                    }
+                    catch
+                    {
+                        dict[prop.Name] = "\"<error>\"";
+                    }
+                }
+            }
+            var jsonPairs = dict.Select(kv => $"\n    \"{kv.Key}\": {kv.Value}");
+            return $"{{{string.Join(",", jsonPairs)}\n    }}";
+        }
+
+        private IEnumerable<FieldInfo> GetAllFields(Type type)
+        {
+            if (type == null || type == typeof(object))
+                return Enumerable.Empty<FieldInfo>();
+
+            var flags = BindingFlags.Public | BindingFlags.NonPublic |
+                        BindingFlags.Instance | BindingFlags.DeclaredOnly;
+            var fields = type.GetFields(flags);
+            return fields.Concat(GetAllFields(type.BaseType));
+        }
+
+        private bool IsCompilerGeneratedBackingField(string name)
+        {
+            return name.Contains("k__BackingField") ||
+                   (name.Contains('<') && name.Contains('>'));
+        }
+        bool isOnce = false;
+        bool inf = false;
+        private void DoBreakPoint(string key, object thing)
+        {
+            switch (key)
+            {
+                case "watch":
+                    HandleWatch(thing);
+                    break;
+                case "eval":
+                    AnsiConsole.MarkupLine($"[yellow]Expression Result[/]: {thing}");
+                    break;
+                case "once":
+                    if (isOnce)
+                    {
+                        inf = true;
+                        return;
+                    }
+                    isOnce = true;
+                    return;
+            }
+        }
+
+        private void HandleWatch(object thing)
+        {
+            string[] watchNames = GetWatchNames(thing);
+            if (watchNames == null || watchNames.Length == 0) return;
+
+            foreach (string name in watchNames)
+            {
+                DisplayVariableValue(name);
+            }
+        }
+
+        private string[] GetWatchNames(object thing)
+        {
+            if (thing is string singleString)
+            {
+                return new[] { singleString };
+            }
+            if (thing is object[] objArray)
+            {
+                try
+                {
+                    return objArray.Cast<string>().ToArray();
+                }
+                catch (InvalidCastException)
+                {
+                    AnsiConsole.MarkupLine("[red]Error: Watch list contains non-string values[/]");
+                    return Array.Empty<string>();
+                }
+            }
+            if (thing is string[] strArray)
+            {
+                return strArray;
+            }
+            if (thing is IEnumerable<string> stringEnumerable)
+            {
+                return stringEnumerable.ToArray();
+            }
+
+            AnsiConsole.MarkupLine("[red]Error: Invalid watch parameter type[/]");
+            return Array.Empty<string>();
+        }
+
+        private void DisplayVariableValue(string variableName)
+        {
+            if (_variables.TryGetValue(variableName, out var value))
+            {
+                PrintVariable(variableName, value);
+                return;
+            }
+            if (_functions.TryGetValue(variableName, out var fvalue))
+            {
+                PrintFunction(variableName, fvalue);
+                return;
+            }
+            if (_classInfos.TryGetValue(variableName, out var cvalue))
+            {
+                PrintClass(variableName, cvalue);
+                return;
+            }
+            AnsiConsole.MarkupLine($"[red]Warning: '{variableName}' not found[/]");
+        }
+
+        private void PrintVariable(string name, object value)
+        {
+            string valueStr;
+
+            if (value is ClassInstance classInstance)
+            {
+                valueStr = ToDeepJson(classInstance);
+                AnsiConsole.MarkupLine($"{name}[yellow](variable)[/] : {valueStr}");
+            }
+            else if (IsArrayOrList(value))
+            {
+                valueStr = string.Join(", ", (IEnumerable<object>)value);
+                AnsiConsole.MarkupLine($"{name}[yellow](variable)[/] : [{valueStr}]");
+            }
+            else
+            {
+                valueStr = value?.ToString() ?? "null";
+                AnsiConsole.MarkupLine($"{name}[yellow](variable)[/] : {valueStr}");
+            }
+        }
+
+        private void PrintFunction(string name, object function)
+        {
+            AnsiConsole.Markup($"{name}[cyan](function)[/] : ");
+            Console.WriteLine(ToDeepJson(function));
+        }
+
+        private void PrintClass(string name, object classInfo)
+        {
+            AnsiConsole.Markup($"{name}[green](class)[/] : ");
+            Console.WriteLine(ToDeepJson(classInfo));
+        }
+
+        private bool IsArrayOrList(object obj)
+        {
+            if (obj == null) return false;
+
+            Type type = obj.GetType();
+            return type.IsArray ||
+                   (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>));
+        }
+        private void BreakPointCore()
+        {
+            AnsiConsole.MarkupLine("All [yellow]variables & const[/]: ");
+            foreach (var item in _variables)
+            {
+                AnsiConsole.MarkupLine($"[yellow]{item.Key}[/]: [cyan1]{item.Value.ToString().Replace("[", "[[").Replace("]", "]]")}[/]");
+            }
+            while (true)
+            {
+                AnsiConsole.MarkupLine("Enter [yellow]'get token'[/], [yellow]'exit'[/], or some code: ");
+                string op = Console.ReadLine();
+                if (op == "exit") break;
+                else if (op == "get token")
+                {
+                    AnsiConsole.MarkupLine($"Current Token: [yellow]{Peek().Value}[/]([green]{Peek().Type}[/])");
+                }
+                else
+                {
+                    var a = Eval(op);
+                    if (a == null)
+                    {
+                        AnsiConsole.MarkupLine("[red]Error[/]: Not a valid statement");
+                    }
+                    else
+                    {
+                        Console.WriteLine(a);
+                    }
+                }
+            }
+            AnsiConsole.MarkupLine("[green]breakpoint[/]: [yellow]End 'breakpoint' mode at " + DateTime.Now + "[/]");
+        }
         bool _isQuit = false;
         int _n = 0;
         private List<string> _builtInTypesList = [
@@ -466,6 +745,8 @@ namespace FeiSharpStudio
         }
         [RequiresDynamicCode("FeiSharp supports script-driven reflection over CLR static members.")]
         [RequiresUnreferencedCode("FeiSharp supports script-driven reflection over CLR static members.")]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields, typeof(Console))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields, typeof(string))]
         private object ParseClassInvoke()
         {
             if (!MatchPunctuation(":")) throw new Exception(_tokens, _current, "Expected ':'", "FS2003");
@@ -525,6 +806,7 @@ namespace FeiSharpStudio
         }
         [RequiresDynamicCode("FeiSharp supports script-driven reflection over CLR instance members.")]
         [RequiresUnreferencedCode("FeiSharp supports script-driven reflection over CLR instance members.")]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields, typeof(object))]
         private object ParseObjectInvoke()
         {
             if (!MatchPunctuation(":")) throw new Exception(_tokens, _current, "Expected ':'", "FS2003");
@@ -1176,15 +1458,15 @@ namespace FeiSharpStudio
             if (!MatchPunctuation(",")) throw new Exception(_tokens, _current, "Expected ','", "FS2003");
             string type = EvaluateExpression(ParseExpression()).ToString();
             Type typeT = null;
-            if (type == "FeiSharp.System.Data.double")
+            if (type == "number")
             {
                 typeT = typeof(double);
             }
-            else if (type == "FeiSharp.System.Data.string")
+            else if (type == "string")
             {
                 typeT = typeof(string);
             }
-            else if (type == "FeiSharp.System.Data.boolean")
+            else if (type == "boolean")
             {
                 typeT = typeof(bool);
             }
@@ -1367,7 +1649,7 @@ namespace FeiSharpStudio
         }
         private KeyValuePair<string, bool> Runclass(string name, Dictionary<string, ClassInfo> _classInfos = null)
         {
-            if(_classInfos == null)
+            if (_classInfos == null)
             {
                 _classInfos = this._classInfos;
             }
@@ -1433,10 +1715,10 @@ namespace FeiSharpStudio
             bool isFunc = false;
             object returnValue = null;
 
-                        var savedVariables = new Dictionary<string, object>(_variables);
+            var savedVariables = new Dictionary<string, object>(_variables);
             var savedResults = new Dictionary<string, object>(_results);
 
-                        var instanceVariablesAdded = new List<string>();
+            var instanceVariablesAdded = new List<string>();
             foreach (var item in classInfo.Variables)
             {
                 if (!_variables.ContainsKey(item.Key))
@@ -1471,9 +1753,10 @@ namespace FeiSharpStudio
                                     }
                                     args.Add(EvaluateExpression(ParseExpression()));
                                 }
-                                Advance();                             }
+                                Advance();
+                            }
 
-                                                        returnValue = classInfo.CallMethod(funcorvarname, args, this);
+                            returnValue = classInfo.CallMethod(funcorvarname, args, this);
                             if (returnValue != null)
                             {
                                 _variables[$"{name}:return"] = returnValue;
@@ -1484,10 +1767,10 @@ namespace FeiSharpStudio
                         {
                             funcorvarname = Peek().Value;
                             isFunc = false;
-                                                    }
+                        }
                     }
 
-                                        foreach (var item in classInfo.Variables.Keys.ToList())
+                    foreach (var item in classInfo.Variables.Keys.ToList())
                     {
                         if (_variables.ContainsKey(item))
                         {
@@ -1498,7 +1781,7 @@ namespace FeiSharpStudio
             }
             finally
             {
-                                                
+
                 _variables.Clear();
                 foreach (var item in savedVariables)
                 {
@@ -1679,13 +1962,133 @@ namespace FeiSharpStudio
             {
                 throw new Exception(_tokens, _current, "return can only be used inside a function or constructor.", "FS2003");
             }
+            if (CheckPunctuation(";") || CheckPunctuation("}"))
+            {
+                _results[funcName] = null;
+                _variables[$"{funcName}:return"] = null;
+                return;
+            }
             _results[funcName] = EvaluateExpression(ParseExpression());
             _variables[$"{funcName}:return"] = _results[funcName];
+        }
+        private object? GetFunctionReturnValueOrDefault(string funcName)
+        {
+            if (_variables.TryGetValue($"{funcName}:return", out object? value))
+            {
+                return value;
+            }
+            if (_results.TryGetValue(funcName, out value))
+            {
+                return value;
+            }
+            return null;
         }
         private void ParseThrowStatement()
         {
             string msg = EvaluateExpression(ParseExpression()).ToString();
             throw new Exception(_tokens, _current, msg, "FS4001", "UserException");
+        }
+        private bool TryParseModifiedDeclaration()
+        {
+            if (!Check(TokenTypes.Keyword) || !IsDeclarationModifier(Peek().Value))
+            {
+                return false;
+            }
+
+            MethodVisibility? explicitVisibility = null;
+            bool isStatic = false;
+            while (Check(TokenTypes.Keyword) && IsDeclarationModifier(Peek().Value))
+            {
+                string modifier = Advance().Value;
+                if (modifier.Equals(TokenKeywords._private, StringComparison.OrdinalIgnoreCase))
+                {
+                    explicitVisibility = MergeVisibilityModifier(explicitVisibility, MethodVisibility.Private);
+                }
+                else if (modifier.Equals(TokenKeywords._protected, StringComparison.OrdinalIgnoreCase))
+                {
+                    explicitVisibility = MergeVisibilityModifier(explicitVisibility, MethodVisibility.Protected);
+                }
+                else if (modifier.Equals(TokenKeywords._public, StringComparison.OrdinalIgnoreCase))
+                {
+                    explicitVisibility = MergeVisibilityModifier(explicitVisibility, MethodVisibility.Public);
+                }
+                else if (modifier.Equals(TokenKeywords._static, StringComparison.OrdinalIgnoreCase))
+                {
+                    isStatic = true;
+                }
+            }
+
+            if (MatchKeyword(TokenKeywords.func))
+            {
+                ValidateFunctionModifiers(explicitVisibility, isStatic);
+                ParseFunctionStatement(explicitVisibility, isStatic);
+                return true;
+            }
+
+            if (MatchKeyword(TokenKeywords._var))
+            {
+                ValidateVariableModifiers(explicitVisibility, isStatic);
+                ParseVariableDeclaration(explicitVisibility, isStatic);
+                return true;
+            }
+
+            if (MatchKeyword(TokenKeywords.readonlyclass))
+            {
+                if (explicitVisibility != null)
+                {
+                    throw new Exception(_tokens, _current, $"'{explicitVisibility.Value.ToString().ToLowerInvariant()}' can only be used before function declarations.", "FS2003");
+                }
+                ParseClassStatement();
+                return true;
+            }
+
+            throw new Exception(_tokens, _current, "Declaration modifiers must be followed by 'function', 'var' or 'class'.", "FS2003");
+        }
+        private static bool IsDeclarationModifier(string value)
+        {
+            return value.Equals(TokenKeywords._private, StringComparison.OrdinalIgnoreCase)
+                || value.Equals(TokenKeywords._protected, StringComparison.OrdinalIgnoreCase)
+                || value.Equals(TokenKeywords._public, StringComparison.OrdinalIgnoreCase)
+                || value.Equals(TokenKeywords._static, StringComparison.OrdinalIgnoreCase)
+                || value.Equals(TokenKeywords._abstract, StringComparison.OrdinalIgnoreCase);
+        }
+        private MethodVisibility MergeVisibilityModifier(MethodVisibility? currentVisibility, MethodVisibility nextVisibility)
+        {
+            if (currentVisibility != null && currentVisibility != nextVisibility)
+            {
+                throw new Exception(_tokens, _current, "Only one visibility modifier can be used on the same declaration.", "FS2003");
+            }
+            return nextVisibility;
+        }
+        private void ValidateFunctionModifiers(MethodVisibility? visibility, bool isStatic)
+        {
+            if (!_isParsingClassBody && visibility == MethodVisibility.Public)
+            {
+                throw new Exception(_tokens, _current, "'public' can only be used for class members.", "FS3001");
+            }
+            if (!_isParsingClassBody && visibility == MethodVisibility.Protected)
+            {
+                throw new Exception(_tokens, _current, "'protected' can only be used for class members.", "FS3001");
+            }
+            if (!_isParsingClassBody && isStatic)
+            {
+                throw new Exception(_tokens, _current, "'static' can only be used for class members.", "FS3001");
+            }
+        }
+        private void ValidateVariableModifiers(MethodVisibility? visibility, bool isStatic)
+        {
+            if (!_isParsingClassBody && visibility == MethodVisibility.Public)
+            {
+                throw new Exception(_tokens, _current, "'public' can only be used for class members.", "FS3001");
+            }
+            if (!_isParsingClassBody && visibility == MethodVisibility.Protected)
+            {
+                throw new Exception(_tokens, _current, "'protected' can only be used for class members.", "FS3001");
+            }
+            if (!_isParsingClassBody && isStatic)
+            {
+                throw new Exception(_tokens, _current, "'static' can only be used for class members.", "FS3001");
+            }
         }
         private void ParseVisibilityQualifiedFunctionStatement(MethodVisibility visibility)
         {
@@ -1693,11 +2096,8 @@ namespace FeiSharpStudio
             {
                 throw new Exception(_tokens, _current, $"'{visibility.ToString().ToLowerInvariant()}' can only be used before function declarations.", "FS2003");
             }
-            if (!_isParsingClassBody && visibility == MethodVisibility.Public)
-            {
-                throw new Exception(_tokens, _current, "'public' can only be used for class members.", "FS3001");
-            }
-            ParseFunctionStatement(visibility);
+            ValidateFunctionModifiers(visibility, false);
+            ParseFunctionStatement(visibility, false);
         }
         private void ParseTryCatchStatement(string funcName)
         {
@@ -1711,16 +2111,6 @@ namespace FeiSharpStudio
             {
                 throw new Exception(_tokens, _current, "Expected error type variable name", "FS2003");
             }
-            if (!MatchPunctuation(",")) throw new Exception(_tokens, _current, "Expected ','", "FS2003");
-            if (!MatchToken(TokenTypes.Identifier, out string describeVar))
-            {
-                throw new Exception(_tokens, _current, "Expected error description variable name", "FS2003");
-            }
-            if (!MatchPunctuation(",")) throw new Exception(_tokens, _current, "Expected ','", "FS2003");
-            if (!MatchToken(TokenTypes.Identifier, out string numberVar))
-            {
-                throw new Exception(_tokens, _current, "Expected error number variable name", "FS2003");
-            }
             if (!MatchPunctuation(")")) throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
             List<Token> catchTokens = ParseScopedTokens("{", "}", "catch");
             try
@@ -1729,9 +2119,21 @@ namespace FeiSharpStudio
             }
             catch (Exception ex)
             {
-                _variables[typeVar] = ex.ErrorType;
-                _variables[describeVar] = ex.Description;
-                _variables[numberVar] = ex.Number;
+                _variables[typeVar] = new ClassInstance()
+                {
+                    Variables =
+                    {
+                        {"type", ex.ErrorType},
+                        {"msg", ex.Message},
+                        {"index", ex.Number }
+                    },
+                    VariableInfos =
+                    {
+                        {"type", new("type",MethodVisibility.Public, false, true, typeVar) },
+                        {"msg", new("msg",MethodVisibility.Public, false, true, typeVar) },
+                        {"index", new("index",MethodVisibility.Public, false, true, typeVar) }
+                    },
+                };
                 ExecuteNestedBlock(catchTokens, funcName, _variables, CloneClassInfos(_classInfos));
             }
         }
@@ -1745,13 +2147,13 @@ namespace FeiSharpStudio
 
                 while (_current < endPos && !IsAtEnd())
                 {
-                                        if (Peek().Type == TokenTypes.Punctuation && Peek().Value == ";")
+                    if (Peek().Type == TokenTypes.Punctuation && Peek().Value == ";")
                     {
                         Advance();
                         continue;
                     }
 
-                                        if (MatchKeyword(TokenKeywords._var))
+                    if (MatchKeyword(TokenKeywords._var))
                     {
                         ParseVariableDeclaration();
                     }
@@ -1772,7 +2174,7 @@ namespace FeiSharpStudio
                     {
                         ParseRunStatement();
                     }
-                    else if (MatchKeyword(TokenKeywords.export))
+                    else if (MatchWord(TokenKeywords.export))
                     {
                         ParseExportStatement();
                     }
@@ -1816,13 +2218,8 @@ namespace FeiSharpStudio
                     {
                         ParseWhileStatement();
                     }
-                    else if (MatchKeyword(TokenKeywords._private))
+                    else if (TryParseModifiedDeclaration())
                     {
-                        ParseVisibilityQualifiedFunctionStatement(MethodVisibility.Private);
-                    }
-                    else if (MatchKeyword(TokenKeywords._public))
-                    {
-                        ParseVisibilityQualifiedFunctionStatement(MethodVisibility.Public);
                     }
                     else if (MatchKeyword(TokenKeywords.func))
                     {
@@ -2061,16 +2458,18 @@ namespace FeiSharpStudio
                     else if (MatchFunction(Peek().Value))
                     {
                         RunFunction(Peek().Value);
+                        ConsumeOptionalSemicolon();
                     }
                     else if (_classInfos.ContainsKey(Peek().Value))
                     {
                         string className = Peek().Value;
                         Advance();
                         Runclass(className);
+                        ConsumeOptionalSemicolon();
                     }
                     else
                     {
-                                                Expr expr = ParseExpression();
+                        Expr expr = ParseExpression();
                         object result = EvaluateExpression(expr);
                         RememberItCandidate(result);
                         ConsumeOptionalSemicolon();
@@ -2087,6 +2486,7 @@ namespace FeiSharpStudio
                 _current = savedPosition;
             }
         }
+
         private void RememberItCandidate(object? value)
         {
             _lastItValue = value;
@@ -2150,7 +2550,7 @@ namespace FeiSharpStudio
         {
             return _functions.ContainsKey(funcName);
         }
-        private void ParseFunctionStatement(MethodVisibility? explicitVisibility = null)
+        private void ParseFunctionStatement(MethodVisibility? explicitVisibility = null, bool isStatic = false)
         {
             FunctionInfo functionInfo;
             if (!MatchMemberName(out string name))
@@ -2178,7 +2578,7 @@ namespace FeiSharpStudio
             Advance();
             List<Token> tokens = ParseScopedTokens("{", "}", "function", "fbegin", "fend");
             MethodVisibility visibility = explicitVisibility ?? (_isParsingClassBody ? MethodVisibility.Private : MethodVisibility.Private);
-            functionInfo = new(name, parameters, tokens, visibility, _isParsingClassBody, _classDeclarationName);
+            functionInfo = new(name, parameters, tokens, visibility, isStatic, _isParsingClassBody, _classDeclarationName);
             _functions[name] = functionInfo;
         }
         private void ParseWhileStatement()
@@ -2365,7 +2765,7 @@ namespace FeiSharpStudio
             List<Token> tokens = ParseScopedTokens("{", "}", "if", "ibegin", "iend");
             if (a)
             {
-                _variables = Run(tokens, _variables);
+                _variables = Run(tokens);
             }
         }
         private void ParseHelperStatement()
@@ -2472,7 +2872,7 @@ namespace FeiSharpStudio
             if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
             Expr b = ParseExpression();
             string a = (string)EvaluateExpression(b);
-           
+
             Process.Start(a);
             Advance();
             Advance();
@@ -2538,6 +2938,12 @@ namespace FeiSharpStudio
                 tokens.Add(token);
             } while (token.Type != TokenTypes.EndOfFile);
             Parser parser = new(tokens);
+            parser._variableInfos = _variableInfos;
+            parser._variables = _variables;
+            parser._classInfos = _classInfos;
+            parser._propagateFeiSharpExceptions = _propagateFeiSharpExceptions;
+            parser._classDeclarationName = _classDeclarationName;
+            parser._results = _results;
             parser._functions = _functions;
             parser.ShouldCancel = this.ShouldCancel;
             try
@@ -2554,15 +2960,30 @@ namespace FeiSharpStudio
             }
             return;
         }
-        internal Dictionary<string, object> Run(IEnumerable<Token> tokens, Dictionary<string, object> _vars)
+        internal object Eval(string code)
+        {
+            try
+            {
+                var vars = Run("var exev_val = " + code, '7');
+                return vars["exev_val"];
+            }
+            catch
+            {
+                return null;
+            }
+        }
+        internal Dictionary<string, object> Run(IEnumerable<Token> tokens)
         {
             List<Token> _tokens = new(tokens);
             Parser parser = new(_tokens);
             parser.OutputEvent = this.OutputEvent;
-            parser._variables = _vars;
-            parser._functions = new(_functions);
-            parser._classInfos = CloneClassInfos(_classInfos);
+            parser._variableInfos = _variableInfos;
+            parser._variables = _variables;
+            parser._propagateFeiSharpExceptions = _propagateFeiSharpExceptions;
+            parser._classInfos = _classInfos;
+            parser._classDeclarationName = _classDeclarationName;
             parser._results = _results;
+            parser._functions = _functions;
             parser.ShouldCancel = this.ShouldCancel;
             try
             {
@@ -2580,6 +3001,19 @@ namespace FeiSharpStudio
             _classInfos = parser._classInfos;
             _results = parser._results;
             return parser._variables;
+        }
+        internal Dictionary<string, object> Run(string code, char aaa)
+        {
+            string sourceCode = code;
+            Lexer lexer = new(sourceCode);
+            List<Token> tokens = [];
+            Token token;
+            do
+            {
+                token = lexer.NextToken();
+                tokens.Add(token);
+            } while (token.Type != TokenTypes.EndOfFile);
+            return Run(tokens);
         }
         internal KeyValuePair<Dictionary<string, object>, Dictionary<string, FunctionInfo>> Run(IEnumerable<Token> tokens, Dictionary<string, object> _vars, int op = 0)
         {
@@ -2728,33 +3162,57 @@ namespace FeiSharpStudio
                     _current = savedPosition;
                     return false;
                 }
-                if (!context._Vars.ContainsKey(memberName))
+                if (!context._Vars.ContainsKey(memberName) && !context._FunctionInfo.ContainsKey(memberName))
                 {
                     throw new Exception(_tokens, _current, $"Undefined member: {memberName}", "FS3001");
                 }
-                target = new AssignmentTarget
+                if (context._Vars.ContainsKey(memberName))
                 {
-                    Kind = "variable",
-                    Name = memberName,
-                    ClassInfo = context
-                };
-                if (MatchPunctuation("["))
-                {
-                    object indexKey = EvaluateExpression(ParseExpression());
-                    if (!MatchPunctuation("]"))
+                    VariableInfo variableInfo = GetVariableInfoOrThrow(context, memberName);
+                    if (variableInfo.IsStatic)
                     {
-                        throw new Exception(_tokens, _current, "Expected ']'", "FS2003");
+                        throw new Exception(_tokens, _current, $"Static member '{memberName}' must be assigned on class '{context.Name}'.", "FS3001");
+                    }
+                    EnsureVariableAccessible(variableInfo, memberName, isBase);
+                    target = new AssignmentTarget
+                    {
+                        Kind = "variable",
+                        Name = memberName,
+                        ClassInfo = context
+                    };
+                    if (MatchPunctuation("["))
+                    {
+                        object indexKey = EvaluateExpression(ParseExpression());
+                        if (!MatchPunctuation("]"))
+                        {
+                            throw new Exception(_tokens, _current, "Expected ']'", "FS2003");
+                        }
+                        target = new AssignmentTarget
+                        {
+                            Kind = "index",
+                            Name = memberName,
+                            ClassInfo = context,
+                            TargetObject = context._Vars[memberName],
+                            IndexKey = indexKey
+                        };
+                    }
+                    return true;
+                }
+                else
+                {
+                    FunctionInfo function = context._FunctionInfo[memberName];
+                    if (function.IsStatic)
+                    {
+                        throw new Exception(_tokens, _current, $"Static member '{memberName}' must be assigned on class '{context.Name}'.", "FS3001");
                     }
                     target = new AssignmentTarget
                     {
-                        Kind = "index",
+                        Kind = "function",
                         Name = memberName,
                         ClassInfo = context,
-                        TargetObject = context._Vars[memberName],
-                        IndexKey = indexKey
                     };
+                    return true;
                 }
-                return true;
             }
             if (!MatchToken(TokenTypes.Identifier, out string name))
             {
@@ -2769,9 +3227,15 @@ namespace FeiSharpStudio
                 }
                 if (_variables.TryGetValue(name, out object? value) && value is ClassInstance instance)
                 {
-                    object? memberValue = instance.GetVariable(memberName);
                     if (MatchPunctuation("["))
                     {
+                        VariableInfo variableInfo = GetVariableInfoOrThrow(instance, memberName);
+                        if (variableInfo.IsStatic)
+                        {
+                            throw new Exception(_tokens, _current, $"Static member '{memberName}' must be accessed on class '{instance.ClassName}'.", "FS3001");
+                        }
+                        EnsureVariableAccessible(variableInfo, memberName);
+                        object? memberValue = instance.GetVariable(memberName);
                         object indexKey = EvaluateExpression(ParseExpression());
                         if (!MatchPunctuation("]"))
                         {
@@ -2798,10 +3262,17 @@ namespace FeiSharpStudio
                 }
                 if (_classInfos.TryGetValue(name, out ClassInfo? classInfo))
                 {
-                    if (!classInfo._Vars.ContainsKey(memberName))
+                    if (!classInfo._Vars.ContainsKey(memberName) && !classInfo._FunctionInfo.Keys.Contains(memberName))
                     {
                         throw new Exception(_tokens, _current, $"Undefined member: {memberName}", "FS3001");
                     }
+                    if (classInfo._FunctionInfo.Keys.Contains(memberName)) return true;
+                    VariableInfo variableInfo = GetVariableInfoOrThrow(classInfo, memberName);
+                    if (!variableInfo.IsStatic)
+                    {
+                        throw new Exception(_tokens, _current, $"Member '{memberName}' is not static.", "FS3001");
+                    }
+                    EnsureVariableAccessible(variableInfo, memberName);
                     target = new AssignmentTarget
                     {
                         Kind = "class",
@@ -2899,10 +3370,17 @@ namespace FeiSharpStudio
                         UpdateClassInfoVariable(target.ClassInfo.Name, target.Name, value);
                     }
                     break;
+                case "function":
+                    break;
                 case "instance":
                     if (target.Instance == null || target.MemberName == null)
                     {
                         throw new Exception(_tokens, _current, "Invalid instance assignment target", "FS3001");
+                    }
+                    VariableInfo variableInfo = GetVariableInfoOrThrow(target.Instance, target.MemberName);
+                    if (variableInfo.IsStatic)
+                    {
+                        throw new Exception(_tokens, _current, $"Static member '{target.MemberName}' must be assigned on class '{target.Instance.ClassName}'.", "FS3001");
                     }
                     target.Instance.SetVariable(target.MemberName, value);
                     break;
@@ -2952,7 +3430,7 @@ namespace FeiSharpStudio
             {
                 [memberName] = value
             };
-            _classInfos[className] = new ClassInfo(classInfo._FunctionInfo, vars, classInfo.Name, classInfo.ConstructorInfo, classInfo.BaseClassName);
+            _classInfos[className] = new ClassInfo(classInfo._FunctionInfo, vars, classInfo.Name, classInfo.ConstructorInfo, classInfo.BaseClassName, classInfo.VariableInfos);
         }
         private void ParseSetStatement()
         {
@@ -2987,7 +3465,7 @@ namespace FeiSharpStudio
                 {
                     var vars = item.Value._Vars;
                     vars[name] = name1;
-                    ClassInfo classInfo = new(item.Value._FunctionInfo, vars, item.Key, item.Value.ConstructorInfo, item.Value.BaseClassName);
+                    ClassInfo classInfo = new(item.Value._FunctionInfo, vars, item.Key, item.Value.ConstructorInfo, item.Value.BaseClassName, item.Value.VariableInfos);
                     a[item.Key] = classInfo;
                 }
             }
@@ -3019,8 +3497,23 @@ namespace FeiSharpStudio
             Advance();
             _variables.NewAdd(((VarExpr)expr).Name, InitValue(((VarExpr)expr2).Name));
         }
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, "System.String", "System.Runtime")]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, "System.Int32", "System.Runtime")]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, "System.Boolean", "System.Runtime")]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, "System.Double", "System.Runtime")]
         [RequiresDynamicCode("FeiSharp creates CLR instances from runtime type names.")]
         [RequiresUnreferencedCode("FeiSharp creates CLR instances from runtime type names.")]
+        [DynamicDependency("System.Void System.Object::.ctor()", typeof(object))]
+        [DynamicDependency("System.Void System.String::.ctor(System.Char[])")]
+        [DynamicDependency("System.Void System.Int32::.ctor(System.Int32)")]
+        [DynamicDependency("System.Void System.Boolean::.ctor(System.Boolean)")]
+        [DynamicDependency("System.Void System.Double::.ctor(System.Double)")]
+        [DynamicDependency("System.Void System.Char::.ctor(System.Char)")]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(string))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(int))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(double))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(bool))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(char))]
         private object InitValue(string type)
         {
             Type t = TypeLoader.LoadType("System." + type);
@@ -3042,11 +3535,21 @@ namespace FeiSharpStudio
             }
             return null;
         }
-        private void ParseVariableDeclaration()
+        private void ParseVariableDeclaration(MethodVisibility? explicitVisibility = null, bool isStatic = false)
         {
             if (!MatchToken(TokenTypes.Identifier, out string varName))
             {
                 throw new Exception(_tokens, _current, "Expected variable name", "FS2003");
+            }
+            if (_isParsingClassBody)
+            {
+                MethodVisibility visibility = explicitVisibility ?? MethodVisibility.Public;
+                _variableInfos[varName] = new VariableInfo(
+                    varName,
+                    visibility,
+                    isStatic,
+                    true,
+                    _classDeclarationName);
             }
             if (!MatchToken(TokenTypes.Operator, out string op) || op != "=")
             {
@@ -3112,7 +3615,11 @@ namespace FeiSharpStudio
 
         private object CreateClassInstance(string className, ClassInfo classInfo, List<object> args)
         {
-            var instanceScope = new Dictionary<string, object>(classInfo._Vars, StringComparer.OrdinalIgnoreCase);
+            var instanceScope = classInfo._Vars
+                .Where(kvp =>
+                    !classInfo.VariableInfos.TryGetValue(kvp.Key, out VariableInfo? info)
+                    || !info.IsStatic)
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
             if (classInfo.ConstructorInfo != null)
             {
                 var ctorArgs = new List<object>();
@@ -3126,7 +3633,8 @@ namespace FeiSharpStudio
             {
                 ClassName = className,
                 Variables = instanceScope,
-                Functions = classInfo._FunctionInfo
+                Functions = classInfo._FunctionInfo,
+                VariableInfos = classInfo.VariableInfos
             };
 
             return instance;
@@ -3166,6 +3674,7 @@ namespace FeiSharpStudio
             public string ClassName { get; set; }
             public Dictionary<string, object> Variables { get; set; } = new();
             public Dictionary<string, FunctionInfo> Functions { get; set; } = new();
+            public Dictionary<string, VariableInfo> VariableInfos { get; set; } = new();
 
             public object GetVariable(string name)
             {
@@ -3180,6 +3689,10 @@ namespace FeiSharpStudio
             {
                 if (Functions.TryGetValue(methodName, out var function))
                 {
+                    if (function.IsStatic)
+                    {
+                        throw new Exception(parser._tokens, parser._current, $"Static member '{methodName}' must be called on class '{ClassName}'.", "FS3001");
+                    }
                     if (!parser.CanAccessMethod(function))
                     {
                         throw new Exception(parser._tokens, parser._current, $"Method '{methodName}' is not accessible.", "FS3001");
@@ -3345,9 +3858,16 @@ namespace FeiSharpStudio
                             object result = instance.CallMethod(memberName, ParseArgumentValuesUntil(")"), this);
                             return ParseRuntimeAccess(result);
                         }
+                        VariableInfo variableInfo = GetVariableInfoOrThrow(instance, memberName);
+                        if (variableInfo.IsStatic)
+                        {
+                            throw new Exception(_tokens, _current, $"Static member '{memberName}' must be accessed on class '{instance.ClassName}'.", "FS3001");
+                        }
+                        EnsureVariableAccessible(variableInfo, memberName);
                         object memberValue = instance.GetVariable(memberName);
                         return ParseRuntimeAccess(memberValue);
                     }
+                    if (varName == "_") throw new Exception(_tokens, _current, "Variable, function or class not defined: " + varName, "FS3001");
                     return ParseRuntimeAccess(value1);
                 }
                 if (_classInfos.ContainsKey(varName))
@@ -3366,6 +3886,10 @@ namespace FeiSharpStudio
                             {
                                 throw new Exception(_tokens, _current, $"Undefined member: {memberName}", "FS3001");
                             }
+                            if (!functionInfo.IsStatic)
+                            {
+                                throw new Exception(_tokens, _current, $"Member '{memberName}' is not static.", "FS3001");
+                            }
 
                             List<object> args = [];
                             while (!IsAtEnd() && Peek().Value != ")")
@@ -3382,21 +3906,27 @@ namespace FeiSharpStudio
                                 throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
                             }
 
-                            RunFunction(memberName, functionInfo, classInfo);
-                            return new ValueExpr(_variables[$"{memberName}:return"]);
+                            RunFunction(memberName, functionInfo, classInfo, args);
+                            return new ValueExpr(GetFunctionReturnValueOrDefault(memberName));
                         }
 
                         if (!classInfo._Vars.TryGetValue(memberName, out object? memberValue))
                         {
                             throw new Exception(_tokens, _current, $"Undefined member: {memberName}", "FS3001");
                         }
+                        VariableInfo variableInfo = GetVariableInfoOrThrow(classInfo, memberName);
+                        if (!variableInfo.IsStatic)
+                        {
+                            throw new Exception(_tokens, _current, $"Member '{memberName}' is not static.", "FS3001");
+                        }
+                        EnsureVariableAccessible(variableInfo, memberName);
                         return ParseRuntimeAccess(memberValue);
                     }
 
                     var a = Runclass(varName);
                     if (a.Value)
                     {
-                        return new ValueExpr(_variables[$"{a.Key}:return"]);
+                        return new ValueExpr(GetFunctionReturnValueOrDefault(a.Key));
                     }
                     else
                     {
@@ -3406,14 +3936,14 @@ namespace FeiSharpStudio
                 if (_functions.ContainsKey(varName))
                 {
                     RunFunction(varName);
-                    return ParseRuntimeAccess(_variables[$"{varName}:return"]);
+                    return ParseRuntimeAccess(GetFunctionReturnValueOrDefault(varName));
                 }
                 else
                 {
                     var a = Runclass(varName);
                     if (a.Value)
                     {
-                        return ParseRuntimeAccess(_variables[$"{a.Key}:return"]);
+                        return ParseRuntimeAccess(GetFunctionReturnValueOrDefault(a.Key));
                     }
                     else
                     {
@@ -3450,7 +3980,8 @@ namespace FeiSharpStudio
                 {
                     ClassName = context.Name,
                     Variables = new Dictionary<string, object>(_variables, StringComparer.OrdinalIgnoreCase),
-                    Functions = context._FunctionInfo
+                    Functions = context._FunctionInfo,
+                    VariableInfos = context.VariableInfos
                 });
             }
             if (!MatchMemberName(out string memberName))
@@ -3479,6 +4010,12 @@ namespace FeiSharpStudio
             {
                 throw new Exception(_tokens, _current, $"Undefined member: {memberName}", "FS3001");
             }
+            VariableInfo variableInfo = GetVariableInfoOrThrow(context, memberName);
+            if (variableInfo.IsStatic)
+            {
+                throw new Exception(_tokens, _current, $"Static member '{memberName}' must be accessed on class '{context.Name}'.", "FS3001");
+            }
+            EnsureVariableAccessible(variableInfo, memberName, useBase);
             return new ValueExpr(value);
         }
         private ClassInfo GetAccessibleClassContext(bool useBase)
@@ -3503,7 +4040,7 @@ namespace FeiSharpStudio
             {
                 throw new Exception(_tokens, _current, $"Undefined method: {methodName}", "FS3001");
             }
-            if (useBase && functionInfo.Visibility != MethodVisibility.Public)
+            if (useBase && functionInfo.Visibility == MethodVisibility.Private)
             {
                 throw new Exception(_tokens, _current, $"Base member '{methodName}' is not accessible.", "FS3001");
             }
@@ -3527,7 +4064,63 @@ namespace FeiSharpStudio
         {
             return !functionInfo.IsClassMember
                 || functionInfo.Visibility == MethodVisibility.Public
-                || string.Equals(_currentExecutionClassName, functionInfo.DeclaringClassName, StringComparison.OrdinalIgnoreCase);
+                || string.Equals(_currentExecutionClassName, functionInfo.DeclaringClassName, StringComparison.OrdinalIgnoreCase)
+                || (functionInfo.Visibility == MethodVisibility.Protected
+                    && IsClassOrDerivedFrom(_currentExecutionClassName, functionInfo.DeclaringClassName));
+        }
+        internal bool CanAccessVariable(VariableInfo variableInfo)
+        {
+            return !variableInfo.IsClassMember
+                || variableInfo.Visibility == MethodVisibility.Public
+                || string.Equals(_currentExecutionClassName, variableInfo.DeclaringClassName, StringComparison.OrdinalIgnoreCase)
+                || (variableInfo.Visibility == MethodVisibility.Protected
+                    && IsClassOrDerivedFrom(_currentExecutionClassName, variableInfo.DeclaringClassName));
+        }
+        private VariableInfo GetVariableInfoOrThrow(ClassInfo classInfo, string memberName)
+        {
+            if (classInfo.VariableInfos.TryGetValue(memberName, out var variableInfo))
+            {
+                return variableInfo;
+            }
+            throw new Exception(_tokens, _current, $"Undefined member: {memberName}", "FS3001");
+        }
+        private VariableInfo GetVariableInfoOrThrow(ClassInstance instance, string memberName)
+        {
+            if (instance.VariableInfos.TryGetValue(memberName, out var variableInfo))
+            {
+                return variableInfo;
+            }
+            throw new Exception(_tokens, _current, $"Undefined member: {memberName}", "FS3001");
+        }
+        private void EnsureVariableAccessible(VariableInfo variableInfo, string memberName, bool useBase = false)
+        {
+            if (useBase && variableInfo.Visibility == MethodVisibility.Private)
+            {
+                throw new Exception(_tokens, _current, $"Base member '{memberName}' is not accessible.", "FS3001");
+            }
+            if (!useBase && !CanAccessVariable(variableInfo))
+            {
+                throw new Exception(_tokens, _current, $"Member '{memberName}' is not accessible.", "FS3001");
+            }
+        }
+        private bool IsClassOrDerivedFrom(string? className, string? expectedBaseClassName)
+        {
+            if (string.IsNullOrWhiteSpace(className) || string.IsNullOrWhiteSpace(expectedBaseClassName))
+            {
+                return false;
+            }
+
+            string? currentClassName = className;
+            while (!string.IsNullOrWhiteSpace(currentClassName) && _classInfos.TryGetValue(currentClassName, out var currentClass))
+            {
+                if (string.Equals(currentClass.Name, expectedBaseClassName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                currentClassName = currentClass.BaseClassName;
+            }
+
+            return false;
         }
         private bool MatchPreviousToken(params TokenTypes[] types)
         {
@@ -3570,6 +4163,20 @@ namespace FeiSharpStudio
         private bool MatchKeyword(string keyword)
         {
             if (Check(TokenTypes.Keyword) && Peek().Value == keyword)
+            {
+                Advance();
+                return true;
+            }
+            return false;
+        }
+        private bool MatchWord(string keyword)
+        {
+            if (Check(TokenTypes.Keyword) && Peek().Value.Equals(keyword, StringComparison.OrdinalIgnoreCase))
+            {
+                Advance();
+                return true;
+            }
+            if (Check(TokenTypes.Identifier) && Peek().Value.Equals(keyword, StringComparison.OrdinalIgnoreCase))
             {
                 Advance();
                 return true;
@@ -3622,7 +4229,7 @@ namespace FeiSharpStudio
         {
             return source.ToDictionary(
                 item => item.Key,
-                item => new ClassInfo(item.Value._FunctionInfo, item.Value._Vars, item.Value.Name, item.Value.ConstructorInfo, item.Value.BaseClassName),
+                item => new ClassInfo(item.Value._FunctionInfo, item.Value._Vars, item.Value.Name, item.Value.ConstructorInfo, item.Value.BaseClassName, item.Value.VariableInfos),
                 StringComparer.OrdinalIgnoreCase);
         }
         private List<Token> ParseScopedTokens(string openToken, string closeToken, string blockName, string? legacyOpenToken = null, string? legacyCloseToken = null)
@@ -3712,6 +4319,7 @@ namespace FeiSharpStudio
         {
             Dictionary<string, object> baseVars = new(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, FunctionInfo> baseFunctions = new(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, VariableInfo> baseVariableInfos = new(StringComparer.OrdinalIgnoreCase);
             FunctionInfo? constructorInfo = null;
             if (!string.IsNullOrWhiteSpace(baseClassName))
             {
@@ -3720,9 +4328,10 @@ namespace FeiSharpStudio
                     throw new Exception(_tokens, _current, $"Base class not defined: {baseClassName}", "FS3001");
                 }
                 baseVars = new(baseClassInfo._Vars, StringComparer.OrdinalIgnoreCase);
+                baseVariableInfos = new(baseClassInfo.VariableInfos, StringComparer.OrdinalIgnoreCase);
                 baseFunctions = new(
                     baseClassInfo._FunctionInfo
-                        .Where(kvp => kvp.Value.Visibility == MethodVisibility.Public),
+                        .Where(kvp => kvp.Value.Visibility != MethodVisibility.Private),
                     StringComparer.OrdinalIgnoreCase);
                 constructorInfo = baseClassInfo.ConstructorInfo;
             }
@@ -3733,6 +4342,7 @@ namespace FeiSharpStudio
             parser._isParsingClassBody = true;
             parser._classDeclarationName = className;
             parser._variables = new(baseVars, StringComparer.OrdinalIgnoreCase);
+            parser._variableInfos = new(baseVariableInfos, StringComparer.OrdinalIgnoreCase);
             parser._functions = new(_functions, StringComparer.OrdinalIgnoreCase);
             parser._classInfos = CloneClassInfos(_classInfos);
             parser.ParseStatements();
@@ -3745,7 +4355,7 @@ namespace FeiSharpStudio
                 }
             }
             constructorInfo = ParseConstructorInfo(className, classBodyTokens) ?? constructorInfo;
-            return new ClassInfo(memberFunctions, parser._variables, className, constructorInfo, baseClassName);
+            return new ClassInfo(memberFunctions, parser._variables, className, constructorInfo, baseClassName, parser._variableInfos);
         }
         private FunctionInfo? ParseConstructorInfo(string className, List<Token> classBodyTokens)
         {
@@ -3799,7 +4409,7 @@ namespace FeiSharpStudio
                         depth--;
                         if (depth == 0)
                         {
-                            return new FunctionInfo($"{className}:ctor", parameters, bodyTokens, MethodVisibility.Public, true, className);
+                            return new FunctionInfo($"{className}:ctor", parameters, bodyTokens, MethodVisibility.Public, false, true, className);
                         }
                         bodyTokens.Add(currentToken);
                         continue;
@@ -3863,7 +4473,7 @@ namespace FeiSharpStudio
             }
             var ctorScope = new Dictionary<string, object>(classInfo._Vars, StringComparer.OrdinalIgnoreCase);
             RunFunction(classInfo.ConstructorInfo.Name, classInfo.ConstructorInfo, classInfo, ctorScope);
-            ClassInfo updated = new(classInfo._FunctionInfo, ctorScope, className, classInfo.ConstructorInfo, classInfo.BaseClassName);
+            ClassInfo updated = new(classInfo._FunctionInfo, ctorScope, className, classInfo.ConstructorInfo, classInfo.BaseClassName, classInfo.VariableInfos);
             _classInfos[className] = updated;
             return updated;
         }
@@ -3910,6 +4520,10 @@ namespace FeiSharpStudio
             {
                 throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
             }
+            RunFunction(funcName, functionInfo, classContext, actualParameters, targetVariables);
+        }
+        private void RunFunction(string funcName, FunctionInfo functionInfo, ClassInfo? classContext, List<object> actualParameters, Dictionary<string, object>? targetVariables = null)
+        {
             var scope = targetVariables ?? _variables;
             string? previousExecutionClassName = _currentExecutionClassName;
             string? previousFunctionName = _currentFunctionName;
@@ -3927,7 +4541,7 @@ namespace FeiSharpStudio
             var functionClasses = CloneClassInfos(_classInfos);
             if (classContext != null)
             {
-                functionClasses[classContext.Name] = new ClassInfo(classContext._FunctionInfo, scope, classContext.Name, classContext.ConstructorInfo, classContext.BaseClassName);
+                functionClasses[classContext.Name] = new ClassInfo(classContext._FunctionInfo, scope, classContext.Name, classContext.ConstructorInfo, classContext.BaseClassName, classContext.VariableInfos);
             }
             var previousFunctions = _functions;
             _currentExecutionClassName = classContext?.Name ?? previousExecutionClassName;
@@ -3949,7 +4563,7 @@ namespace FeiSharpStudio
             _currentFunctionName = previousFunctionName;
             if (classContext != null)
             {
-                _classInfos[classContext.Name] = new ClassInfo(classContext._FunctionInfo, _variables, classContext.Name, classContext.ConstructorInfo, classContext.BaseClassName);
+                _classInfos[classContext.Name] = new ClassInfo(classContext._FunctionInfo, _variables, classContext.Name, classContext.ConstructorInfo, classContext.BaseClassName, classContext.VariableInfos);
             }
         }
         private bool MatchOperator(params string[] operators)
@@ -4032,7 +4646,7 @@ namespace FeiSharpStudio
             {
                 str = Regex.Replace(str, @"\$\(unicode:([0-9A-Fa-f]{4,5})\)",
                     m => char.ConvertFromUtf32(Convert.ToInt32(m.Groups[1].Value, 16)));
-                for(int a = 0; a < str.Length; a++)
+                for (int a = 0; a < str.Length; a++)
                 {
                     if (str[a] == '\\')
                     {
@@ -4072,6 +4686,21 @@ namespace FeiSharpStudio
             _current = savedPosition;
             return ParseLegacyNewExpression();
         }
+        [RequiresDynamicCode("FeiSharp creates CLR instances from runtime type names.")]
+        [RequiresUnreferencedCode("FeiSharp creates CLR instances from runtime type names.")]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(Console))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(string))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(int))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(double))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(bool))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(char))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(Type))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(Assembly))]
+        [DynamicDependency("System.Type System.Type::GetType(System.String)")]
+        [DynamicDependency("System.Reflection.Assembly System.Reflection.Assembly::GetExecutingAssembly()")]
+        [DynamicDependency("System.Reflection.Assembly System.Reflection.Assembly::GetCallingAssembly()")]
+        [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Runtime type creation for script engine")]
+        [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Runtime type creation for script engine")]
         private Expr ParseLegacyNewExpression()
         {
             string className = Advance().Value;
@@ -4374,7 +5003,7 @@ namespace FeiSharpStudio
                     return dictionary[key];
                 }
             }
-            catch(IndexOutOfRangeException)
+            catch (IndexOutOfRangeException)
             {
                 throw new Exception(_tokens, _current, "Index out of range", "FS3001");
             }
@@ -4403,7 +5032,12 @@ namespace FeiSharpStudio
             }
             throw new Exception(_tokens, _current, $"Type '{target.GetType().Name}' does not support indexed assignment.", "FS3001");
         }
-        private object? GetRuntimeMember(object? target, string memberName)
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicProperties, typeof(Array))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicProperties, typeof(ICollection))]
+        [DynamicDependency("System.Int32 System.Array::get_Length()")]
+        [DynamicDependency("System.Int32 System.Collections.ICollection::get_Count()")]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields, typeof(object))]
+        private object? GetRuntimeMember([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)] object? target, string memberName)
         {
             if (target == null)
             {
@@ -4433,7 +5067,11 @@ namespace FeiSharpStudio
             }
             throw new Exception(_tokens, _current, $"Undefined member: {memberName}", "FS3001");
         }
-        private object? InvokeRuntimeMember(object? target, string memberName, List<object> args)
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(Type))]
+        [DynamicDependency("System.Reflection.MethodInfo System.Type::GetMethod(System.String,System.Reflection.BindingFlags,System.Reflection.Binder,System.Type[],System.Reflection.ParameterModifier[])")]
+        [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Runtime reflection for script engine")]
+        [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Runtime reflection for script engine")]
+        private object? InvokeRuntimeMember([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] object? target, string memberName, List<object> args)
         {
             if (target == null)
             {
@@ -4550,17 +5188,17 @@ namespace FeiSharpStudio
             object left = EvaluateExpression(binExpr.Left);
             object right = EvaluateExpression(binExpr.Right);
 
-                        if (left is string or char && right is string or char)
+            if (left is string or char && right is string or char)
             {
                 return EvaluateStringBinary(left, right, binExpr.Operator);
             }
 
-                        if (left is bool && right is bool)
+            if (left is bool && right is bool)
             {
                 return EvaluateBoolBinary((bool)left, (bool)right, binExpr.Operator);
             }
 
-                        if (left.GetType() != right.GetType())
+            if (left.GetType() != right.GetType())
             {
                 if (!TryUnifyTypes(ref left, ref right))
                 {
@@ -4569,7 +5207,7 @@ namespace FeiSharpStudio
                 }
             }
 
-                        if (binExpr.Operator == "*")
+            if (binExpr.Operator == "*")
             {
                 if ((left is string or char && right is double) ||
                     (left is double && right is string or char))
@@ -4580,7 +5218,7 @@ namespace FeiSharpStudio
                 }
             }
 
-                        return EvaluateNumericBinary(left, right, binExpr.Operator);
+            return EvaluateNumericBinary(left, right, binExpr.Operator);
         }
 
         private object EvaluateStringBinary(object left, object right, string op)
@@ -4619,14 +5257,14 @@ namespace FeiSharpStudio
             object originalRight = right;
             object originalLeft = left;
 
-                        try
+            try
             {
                 right = Convert.ChangeType(right, leftType);
                 return true;
             }
             catch { }
 
-                        try
+            try
             {
                 left = Convert.ChangeType(left, rightType);
                 right = originalRight;
@@ -4647,25 +5285,25 @@ namespace FeiSharpStudio
 
             try
             {
-                                _tokens = tokens;
+                _tokens = tokens;
                 _current = 0;
                 _variables = new Dictionary<string, object>(variables);
                 _functions = new Dictionary<string, FunctionInfo>(_functions);
                 _classInfos = CloneClassInfos(_classInfos);
                 _results = new Dictionary<string, object>();
 
-                                ParseStatements();
+                ParseStatements();
 
-                                return new Dictionary<string, object>(_variables);
+                return new Dictionary<string, object>(_variables);
             }
             finally
             {
-                                foreach (var kv in _variables)
+                foreach (var kv in _variables)
                 {
                     savedVariables[kv.Key] = kv.Value;
                 }
 
-                                _tokens = savedTokens;
+                _tokens = savedTokens;
                 _current = savedPosition;
                 _variables = savedVariables;
                 _functions = savedFunctions;
@@ -4675,7 +5313,7 @@ namespace FeiSharpStudio
         }
         private object EvaluateNumericBinary(object left, object right, string op)
         {
-                        double leftNum, rightNum;
+            double leftNum, rightNum;
 
             try
             {
@@ -4706,24 +5344,88 @@ namespace FeiSharpStudio
                     $"ICS: Cannot using operator '{op}' to connect numeric values.", "FS2003")
             };
         }
+        private int _counter;
+        public string TransformEvalExpressions(string code)
+        {
+            _counter = 0;
+            return ProcessEvalExpressions(code);
+        }
+        private string ProcessEvalExpressions(string code)
+        {
+            string pattern = @"\$\(eval:\s*([^()]*(?:\([^()]*\)[^()]*)*)\)";
+            var match = Regex.Match(code, pattern);
+            if (!match.Success)
+                return code;
+            string fullMatch = match.Value;
+            string expression = match.Groups[1].Value.Trim();
+            expression = ProcessEvalExpressions(expression);
+            string guid = Guid.NewGuid().ToString("N");
+            string lettersOnly = new string(Array.FindAll(guid.ToCharArray(), char.IsLetter));
+            string tempVar = $"tmpEval{lettersOnly}{GetLetterFromNumber(_counter)}";
+            _counter++;
+            string replacement = tempVar;
+            string declaration = $"var {tempVar} = {expression};";
+            string result = ReplaceAndAddDeclaration(code, fullMatch, replacement, declaration);
+            return ProcessEvalExpressions(result);
+        }
+        private string GetLetterFromNumber(int number)
+        {
+            if (number < 26)
+                return ((char)('A' + number)).ToString();
+            else
+                return GetLetterFromNumber(number / 26 - 1) + GetLetterFromNumber(number % 26);
+        }
+        private string ReplaceAndAddDeclaration(string code, string target, string replacement, string declaration)
+        {
+            var lines = code.Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+            var result = new StringBuilder();
+            bool declarationAdded = false;
+            foreach (var line in lines)
+            {
+                if (!declarationAdded && line.Contains(target))
+                {
+                    result.AppendLine(declaration);
+                    string newLine = line.Replace(target, replacement);
+                    newLine = FixStringConcatenation(newLine);
+                    result.AppendLine(newLine);
+                    declarationAdded = true;
+                }
+                else
+                {
+                    result.AppendLine(line);
+                }
+            }
+            return result.ToString().TrimEnd();
+        }
 
+        private string FixStringConcatenation(string line)
+        {
+            line = Regex.Replace(line, "\"\"\\s*\\+\\s*", "");
+            line = Regex.Replace(line, "\\s*\\+\\s*\"\"", "");
+            line = Regex.Replace(line, "^\\s*\\+\\s*", "");
+            line = Regex.Replace(line, "\\s*\\+\\s*$", "");
+            line = Regex.Replace(line, "\\+\\s*\\+", "+");
+            return line;
+        }
         private object EvaluateStringExpr(StringExpr stringExpr)
         {
             stringExpr.Value = Regex.Replace(stringExpr.Value, @"\$\(unicode:([0-9A-Fa-f]{4,5})\)",
                 m => char.ConvertFromUtf32(Convert.ToInt32(m.Groups[1].Value, 16)));
-
-            return stringExpr.Value.Replace("$(newline)", "\n")
+            string res = TransformEvalExpressions(stringExpr.Value.Replace("$(newline)", "\n")
                                   .Replace("$(tab)", "    ")
                                   .Replace("\\n", "\n")
                                   .Replace("\\t", "\t")
-                                  .Replace("\\\\", "\\");
+                                  .Replace("\\\\", "\\"));
+            return res;
         }
     }
-
     [RequiresDynamicCode("FeiSharp constructs CLR instances from runtime-discovered constructors.")]
     [RequiresUnreferencedCode("FeiSharp constructs CLR instances from runtime-discovered constructors.")]
     public static class SmartActivator
     {
+        [DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, "System.String", "System.Runtime")]
+        [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Dynamic activation is intentional for script engine")]
+        [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Dynamic activation is intentional for script engine")]
         public static object CreateInstance(
             Type type,
             object[] args)
@@ -4759,8 +5461,6 @@ namespace FeiSharpStudio
                 var convertedArgs = ConvertArguments(convertibleMatch, args);
                 return convertibleMatch.Invoke(convertedArgs);
             }
-
-
             if (type == typeof(string))
                 return HandleStringCreation(args);
 
@@ -4924,7 +5624,7 @@ namespace FeiSharpStudio
             return convertedArgs;
         }
 
-        
+
         private static object ConvertValue(object value, Type targetType)
         {
             if (value == null) return null;

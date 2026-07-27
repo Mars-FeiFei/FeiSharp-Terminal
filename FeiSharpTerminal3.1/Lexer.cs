@@ -73,7 +73,7 @@ public class Lexer
             {
                 return ReadNumberToken();
             }
-            if (char.IsLetter(current))
+            if (char.IsLetter(current) || current == '_')
             {
                 return ReadIdentifierOrKeywordToken();
             }
@@ -125,7 +125,7 @@ public class Lexer
     private Token ReadIdentifierOrKeywordToken()
     {
         int start = _index;
-        while (_index < _source.Length && char.IsLetterOrDigit(_source[_index]))
+        while (_index < _source.Length && (char.IsLetterOrDigit(_source[_index]) || _source[_index] == '_'))
         {
             _index++;
         }

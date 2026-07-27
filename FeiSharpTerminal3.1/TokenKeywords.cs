@@ -38,7 +38,10 @@ namespace FeiSharpStudio
         public static readonly string _this = "this";
         public static readonly string _base = "base";
         public static readonly string _private = "private";
+        public static readonly string _protected = "protected";
         public static readonly string _public = "public";
+        public static readonly string _static = "static";
+        public static readonly string _abstract = "abstract";
         public static readonly string invoke = "invoke";
         public static readonly string func = "function";
         public static readonly string read = "read";
