@@ -52,10 +52,34 @@ var result = 1;",
                 new Token(TokenTypes.EndOfFile, "")
             });
         }),
+        ("Combined Operator Lexing Test", () => {
+            AssertTokenSequence("!= && || <= >=", new[]
+            {
+                new Token(TokenTypes.Operator, "!="),
+                new Token(TokenTypes.Operator, "&&"),
+                new Token(TokenTypes.Operator, "||"),
+                new Token(TokenTypes.Operator, "<="),
+                new Token(TokenTypes.Operator, ">="),
+                new Token(TokenTypes.EndOfFile, "")
+            });
+        }),
         ("Multiplication Test", () => {
             RunFeiSharpCode(@"
 var x = 3 * 4 * 5;",
                 new ExpectedVariable("x", 60));
+        }),
+        ("Unary Not And New Comparison Operators Test", () => {
+            RunFeiSharpCode(@"
+var neq = 1 != 2;
+var le = 2 <= 2;
+var ge = 3 >= 2;
+var andv = true && !false;
+var orv = false || false;",
+                new ExpectedVariable("neq", true),
+                new ExpectedVariable("le", true),
+                new ExpectedVariable("ge", true),
+                new ExpectedVariable("andv", true),
+                new ExpectedVariable("orv", false));
         }),
         ("Power Test", () => {
             RunFeiSharpCode(@"

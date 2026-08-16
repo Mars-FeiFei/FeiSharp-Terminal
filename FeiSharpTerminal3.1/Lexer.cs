@@ -56,6 +56,31 @@ public class Lexer
                 _index++;
                 continue;
             }
+            if (_index + 1 < _source.Length)
+            {
+                string twoCharOperator = _source.Substring(_index, 2);
+                if (twoCharOperator is "++" or "--" or "!=" or "&&" or "||" or "<=" or ">=")
+                {
+                    _index += 2;
+                    return new Token(TokenTypes.Operator, twoCharOperator);
+                }
+            }
+            if (current == '+')
+            {
+                if (_index + 1 < _source.Length && _source[_index + 1] == '+')
+                {
+                    _index += 2;
+                    return new Token(TokenTypes.Operator, "++");
+                }
+            }
+            if (current == '-')
+            {
+                if (_index + 1 < _source.Length && _source[_index + 1] == '-')
+                {
+                    _index += 2;
+                    return new Token(TokenTypes.Operator, "--");
+                }
+            }
             if (SingleCharTokens.TryGetValue(current, out Token? token))
             {
                 _index++;

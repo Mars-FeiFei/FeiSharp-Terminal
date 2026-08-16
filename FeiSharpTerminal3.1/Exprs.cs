@@ -6,6 +6,29 @@ using System.Threading.Tasks;
 namespace FeiSharpStudio
 {
     public abstract class Expr { }
+    public class UnaryExpr : Expr
+    {
+        public string Operator { get; }
+        public Expr Operand { get; }
+        public UnaryExpr(string op, Expr operand)
+        {
+            Operator = op;
+            Operand = operand;
+        }
+    }
+    public class IncrementExpr : Expr
+    {
+        public string Operator { get; }
+        public Expr Operand { get; }
+        public bool IsPrefix { get; }
+
+        public IncrementExpr(string op, Expr operand, bool isPrefix)
+        {
+            Operator = op;
+            Operand = operand;
+            IsPrefix = isPrefix;
+        }
+    }
     public class VarExpr : Expr
     {
         public string Name { get; set; }

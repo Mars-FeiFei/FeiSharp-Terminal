@@ -52,6 +52,8 @@ namespace FeiSharpTerminal3._1
                 ["protected"] = new Token(TokenTypes.Keyword, "protected"),
                 ["public"] = new Token(TokenTypes.Keyword, "public"),
                 ["static"] = new Token(TokenTypes.Keyword, "static"),
+                ["constant"] = new(TokenTypes.Keyword, "readonly"),
+                ["readonly"] = new(TokenTypes.Keyword, "readonly"),
                 ["abstract"] = new Token(TokenTypes.Keyword, "abstract"),
                 ["invoke"] = new Token(TokenTypes.Keyword, "invoke"),
                 ["function"] = new Token(TokenTypes.Keyword, "function"),

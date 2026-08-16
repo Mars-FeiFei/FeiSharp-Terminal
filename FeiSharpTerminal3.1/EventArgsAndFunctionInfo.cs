@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection.Metadata;
 using System.Text;
 using System.Threading.Tasks;
 namespace FeiSharpStudio
@@ -41,16 +42,15 @@ namespace FeiSharpStudio
     public class VariableInfo
     {
         public string Name { get; internal set; }
+        public bool IsReadOnly { get; set; }
         public MethodVisibility Visibility { get; internal set; }
         public bool IsStatic { get; internal set; }
         public bool IsClassMember { get; internal set; }
         public string? DeclaringClassName { get; internal set; }
-        public VariableInfo(
-            string name,
-            MethodVisibility visibility = MethodVisibility.Private,
-            bool isStatic = false,
-            bool isClassMember = false,
-            string? declaringClassName = null)
+        public VariableInfo(string name,
+                         MethodVisibility visibility = MethodVisibility.Public,
+                         bool isStatic = false, bool isClassMember = false,
+                         string? declaringClassName = null)
         {
             Name = name;
             Visibility = visibility;

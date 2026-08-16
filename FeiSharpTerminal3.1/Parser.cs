@@ -71,6 +71,24 @@ namespace FeiSharpStudio
                 throw new OperationCanceledException("Execution cancelled by user");
             }
         }
+        List<string> keys =
+[
+    "true",
+    "false",
+    "null",
+    "positiveInf",
+    "negativeInf",
+    "buildVersion",
+    "zeroInt",
+    "emptyStr",
+    "ten",
+    "hundred",
+    "thousand",
+    "pi",
+    "e",
+    "tau",
+    "_"
+];
         public Parser(List<Token> tokens)
         {
             _tokens = tokens;
@@ -82,9 +100,10 @@ namespace FeiSharpStudio
             _variables.NewAdd("buildVersion", 10.0);
             _variables.NewAdd("zeroInt", 0);
             _variables.NewAdd("emptyStr", "");
-            _variables.NewAdd("ten", 10);
-            _variables.NewAdd("hundred", 100);
-            _variables.NewAdd("thousand", 1000);
+            _variables.NewAdd("null", null);
+            _variables.NewAdd("ten", 10.0);
+            _variables.NewAdd("hundred", 100.0);
+            _variables.NewAdd("thousand", 1000.0);
             _variables.NewAdd("pi", Math.PI);
             _variables.NewAdd("e", Math.E);
             _variables.NewAdd("tau", Math.Tau);
@@ -119,6 +138,10 @@ namespace FeiSharpStudio
                     if (MatchKeyword(TokenKeywords._var))
                     {
                         ParseVariableDeclaration();
+                    }
+                    else if (MatchKeyword("oldabs"))
+                    {
+                        Parseabs();
                     }
                     else if (MatchKeyword(TokenKeywords.print))
                     {
@@ -1456,7 +1479,8 @@ namespace FeiSharpStudio
             if (!MatchPunctuation("(")) throw new Exception(_tokens, _current, "Expected '('", "FS2003");
             object convertItem = EvaluateExpression(ParseExpression());
             if (!MatchPunctuation(",")) throw new Exception(_tokens, _current, "Expected ','", "FS2003");
-            string type = EvaluateExpression(ParseExpression()).ToString();
+            string type = "string";
+            type = EvaluateExpression(ParseExpression()).ToString();
             Type typeT = null;
             if (type == "number")
             {
@@ -1994,7 +2018,7 @@ namespace FeiSharpStudio
             {
                 return false;
             }
-
+            if (Peek().Value.EndsWith("_readonly")) throw new Exception(_tokens, _current, "Cannot set or cover a const", "FS3001");
             MethodVisibility? explicitVisibility = null;
             bool isStatic = false;
             while (Check(TokenTypes.Keyword) && IsDeclarationModifier(Peek().Value))
@@ -3143,7 +3167,17 @@ namespace FeiSharpStudio
                 _current = savedPosition;
                 return false;
             }
+            if (target != null && target.Kind == "variable")
+            {
+                string varName = target.Name;
+                if ((_variableInfos.TryGetValue(varName, out var info) && info.IsReadOnly) || varName.EndsWith("_readonly") || keys.Contains(varName))
+                {
+                    throw new Exception(_tokens, _current,
+                        $"Cannot set or cover a const", "FS3001");
+                }
+            }
             object value = ParseAssignmentValue(out string? assignedClassName);
+            if (keys.Contains(target.Name)) throw new Exception(_tokens, _current, "Cannot set or cover a const", "FS3001");
             ApplyAssignment(target, value, assignedClassName);
             RememberItCandidate(value);
             ConsumeOptionalSemicolon();
@@ -3447,6 +3481,13 @@ namespace FeiSharpStudio
             {
                 name = EvaluateExpression(ParseExpression()).ToString();
             }
+            if (name.EndsWith("_readonly")) throw new Exception(_tokens, _current,
+                    $"Cannot set or cover a const", "FS3001");
+            if (_variableInfos.TryGetValue(name, out var info) && info.IsReadOnly)
+            {
+                throw new Exception(_tokens, _current,
+                    $"Cannot modify readonly variable '{name}'", "FS3001");
+            }
             if (!MatchPunctuation(",")) throw new Exception(_tokens, _current, "Expected ','", "FS2003");
             object name1 = EvaluateExpression(ParseExpression());
             if (!MatchPunctuation(")")) throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
@@ -3537,6 +3578,11 @@ namespace FeiSharpStudio
         }
         private void ParseVariableDeclaration(MethodVisibility? explicitVisibility = null, bool isStatic = false)
         {
+            bool isReadOnly = false;
+            if (MatchKeyword("readonly"))
+            {
+                isReadOnly = true;
+            }
             if (!MatchToken(TokenTypes.Identifier, out string varName))
             {
                 throw new Exception(_tokens, _current, "Expected variable name", "FS2003");
@@ -3549,10 +3595,16 @@ namespace FeiSharpStudio
                     visibility,
                     isStatic,
                     true,
-                    _classDeclarationName);
+                    _classDeclarationName)
+                { IsReadOnly = isReadOnly };
             }
             if (!MatchToken(TokenTypes.Operator, out string op) || op != "=")
             {
+                if (isReadOnly)
+                {
+                    throw new Exception(_tokens, _current,
+                        $"Readonly variable '{varName}' must be initialized", "FS2003");
+                }
                 _variables[varName] = 0;
                 ConsumeOptionalSemicolon();
                 return;
@@ -3776,26 +3828,44 @@ namespace FeiSharpStudio
         {
             return token == "+" || token == "-" || token == "*" || token == "/" ||
                    token == "^" || token == ">" || token == "<" || token == "=" ||
-                   token == "!" || token == "|" || token == "&" || token == "$";
+                   token == "!=" || token == ">=" || token == "<=" ||
+                   token == "||" || token == "&&" ||
+                   token == "!" || token == "|" || token == "&" || token == "$" || token == "++" || token == "--";
         }
 
         private int GetPrecedence(string op)
         {
             return op switch
             {
-                "|" => 1,
-                "&" => 2,
-                "=" or "!" => 3,
-                ">" or "<" => 3,
-                "^" => 4,
-                "+" or "-" => 5,
-                "*" or "/" => 6,
-                "$" => 7,
+                "||" => 1,
+                "&&" => 2,
+                "|" => 3,
+                "&" => 4,
+                "=" or "!=" => 5,
+                ">" or "<" or ">=" or "<=" => 5,
+                "^" => 6,
+                "+" or "-" => 7,
+                "*" or "/" => 8,
+                "$" => 9,
+                "++" or "--" => 10,
                 _ => 0
             };
         }
         private Expr ParsePrimary()
         {
+            if (Check(TokenTypes.Operator) && (Peek().Value == "++" || Peek().Value == "--"))
+            {
+                string op = Advance().Value;
+                Expr operand = ParsePrimary();
+                return new IncrementExpr(op, operand, true);
+            }
+
+            if (MatchOperator("!") || MatchOperator("-") || MatchOperator("+"))
+            {
+                string op = Previous().Value;
+                Expr operand = ParsePrimary();
+                return new UnaryExpr(op, operand);
+            }
             string varName = "";
             if (MatchPunctuation("("))
             {
@@ -3833,6 +3903,12 @@ namespace FeiSharpStudio
             else if (MatchToken(TokenTypes.Identifier))
             {
                 varName = Previous().Value;
+                if (Check(TokenTypes.Operator) && (Peek().Value == "++" || Peek().Value == "--"))
+                {
+                    string op = Advance().Value;
+                    return new IncrementExpr(op, new VarExpr(varName), false);
+                }
+
                 if (Previous().Type == TokenTypes.Identifier && Previous().Value == "classinvoke")
                 {
                     return new BinaryExpr(new ValueExpr(ParseClassInvoke()), "HAVE", null);
@@ -4533,7 +4609,7 @@ namespace FeiSharpStudio
                 {
                     scope[functionInfo.Parameter[i]] = actualParameters[i];
                 }
-                catch (IndexOutOfRangeException)
+                catch
                 {
                     throw new Exception(_tokens, _current, "Parameters is not correct.", "FS3003");
                 }
@@ -4612,24 +4688,103 @@ namespace FeiSharpStudio
             }
             Console.Write(text);
         }
+        private object EvaluateUnaryExpr(UnaryExpr unaryExpr)
+        {
+            object operand = EvaluateExpression(unaryExpr.Operand);
+
+            if (unaryExpr.Operator == "-")
+            {
+                return operand switch
+                {
+                    double d => -d,
+                    int i => -i,
+                    float f => -f,
+                    long l => -l,
+                    decimal dec => -dec,
+                    _ => throw new Exception(_tokens, _current,
+                        $"Cannot apply unary '-' to type {operand.GetType()}", "FS2003")
+                };
+            }
+            else if (unaryExpr.Operator == "!")
+            {
+                return operand switch
+                {
+                    bool b => !b,
+                    _ => throw new Exception(_tokens, _current,
+                        $"Cannot apply unary '!' to type {operand.GetType()}", "FS2003")
+                };
+            }
+            else if (unaryExpr.Operator == "+")
+            {
+                return operand;
+            }
+            throw new Exception(_tokens, _current,
+                $"Unknown unary operator: {unaryExpr.Operator}", "FS2003");
+        }
+        private object EvaluateIncrementExpr(IncrementExpr incExpr)
+        {
+            object value = EvaluateExpression(incExpr.Operand);
+            string varName = null;
+            if (incExpr.Operand is VarExpr varExpr)
+            {
+                varName = varExpr.Name;
+                if (varName.EndsWith("_readonly") || keys.Contains(varName)) throw new Exception(_tokens, _current, "Cannot set or cover a const", "FS3001");
+            }
+            else
+            {
+                throw new Exception(_tokens, _current,
+                    "Increment/decrement operator can only be applied to variables", "FS2003");
+            }
+            if (_variableInfos.TryGetValue(varName, out var info) && info.IsReadOnly)
+            {
+                throw new Exception(_tokens, _current,
+                    $"Cannot modify readonly variable '{varName}'", "FS3001");
+            }
+            if (!_variables.ContainsKey(varName))
+            {
+                throw new Exception(_tokens, _current,
+                    $"Undefined variable: {varName}", "FS3001");
+            }
+            double numericValue;
+            try
+            {
+                numericValue = Convert.ToDouble(value);
+            }
+            catch
+            {
+                throw new Exception(_tokens, _current,
+                    $"Cannot increment/decrement non-numeric value: {value.GetType()}", "FS2003");
+            }
+            double newValue = incExpr.Operator == "++" ? numericValue + 1 : numericValue - 1;
+            _variables[varName] = newValue;
+            return incExpr.IsPrefix ? newValue : value;
+        }
+
         private object EvaluateExpression(Expr expr)
         {
             switch (expr)
             {
                 case ValueExpr numExpr:
                     return EvaluateValueExpr(numExpr);
-
+                case VarExpr varExpr:
+                    return EvaluateVarExpr(varExpr);
                 case BinaryExpr binExpr:
                     return EvaluateBinaryExpr(binExpr);
-
+                case IncrementExpr incExpr:
+                    return EvaluateIncrementExpr(incExpr);
                 case StringExpr stringExpr:
                     return EvaluateStringExpr(stringExpr);
+                case UnaryExpr unaryExpr:
+                    return EvaluateUnaryExpr(unaryExpr);
 
                 default:
                     throw new Exception(_tokens, _current, "Unexpected expression type", "FS2003");
             }
         }
-
+        private object EvaluateVarExpr(VarExpr varExpr)
+        {
+            return _variables[varExpr.Name];
+        }
         private object EvaluateValueExpr(ValueExpr numExpr)
         {
             if (numExpr.Value == null)
@@ -5232,7 +5387,7 @@ namespace FeiSharpStudio
                 "-" => Regex.Replace(leftStr, Regex.Escape(rightStr), ""),
                 "/" => leftStr.Split(rightStr).Length - 1,
                 "=" => leftStr == rightStr,
-                "!" => leftStr != rightStr,
+                "!=" => leftStr != rightStr,
                 _ => throw new Exception(_tokens, _current,
                     $"Cannot using operator '{op}' to connect string_obj and string_obj.", "FS2003")
             };
@@ -5242,9 +5397,12 @@ namespace FeiSharpStudio
         {
             return op switch
             {
+                "&&" => left && right,
+                "||" => left || right,
                 "&" => left && right,
                 "|" => left || right,
-                "!" => left != right,
+                "!=" => left != right,
+                "=" => left == right,
                 _ => throw new Exception(_tokens, _current,
                     $"Cannot using operator '{op}' to connect bool_obj and bool_obj.", "FS2003")
             };
@@ -5335,13 +5493,15 @@ namespace FeiSharpStudio
                 "^" => (int)leftNum ^ (int)rightNum,
                 ">" => leftNum > rightNum,
                 "<" => leftNum < rightNum,
+                ">=" => leftNum >= rightNum,
+                "<=" => leftNum <= rightNum,
                 "=" => leftNum == rightNum,
                 "&" => (int)leftNum & (int)rightNum,
                 "|" => (int)leftNum | (int)rightNum,
-                "!" => leftNum != rightNum,
+                "!=" => leftNum != rightNum,
                 "$" => Math.Pow(leftNum, rightNum),
                 _ => throw new Exception(_tokens, _current,
-                    $"ICS: Cannot using operator '{op}' to connect numeric values.", "FS2003")
+                    $"ITC: Cannot using operator '{op}' to connect numeric values.", "FS2003")
             };
         }
         private int _counter;

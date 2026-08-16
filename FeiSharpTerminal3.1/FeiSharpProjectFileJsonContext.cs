@@ -15,6 +15,15 @@ internal sealed class FeiSharpProjectFile
     public bool? IsOnlyCopyExecutable { get; set; }
     [JsonPropertyName("project_name")]
     public string? ProjectName { get; set; }
+    [JsonPropertyName("dependencies")]
+    public List<Dependency>? Dependencies { get; set; }
+}
+public class Dependency
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+    [JsonPropertyName("src_url")]
+    public string? SrcUrl { get; set; }
 }
 [JsonSourceGenerationOptions(
     PropertyNameCaseInsensitive = true,
