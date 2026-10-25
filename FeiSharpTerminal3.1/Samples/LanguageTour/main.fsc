@@ -1,0 +1,66 @@
+import "tour_helpers.fsc";
+import "advanced.fsc";
+import Sample.LanguageTour;
+import Sample.Advanced;
+function showTitle(title) {
+    printNl("");
+    printNl("=== " + title + " ===");
+}
+
+function main() {
+    showTitle("1. variables and expressions");
+    var language = "FeiSharp";
+    const release = 10;
+    var a = 7;
+    var b = 3;
+    printNl(greet(language));
+    printNl("release = " + release);
+    printNl("a + b = " + (a + b));
+    printNl("a * b = " + (a * b));
+    printNl("a > b && b > 0 = " + (a > b && b > 0));
+    var size = "large" when a > 5 otherwise "small";
+    printNl("conditional value = " + size);
+    showTitle("2. strings and collections");
+    var text = "FeiSharp";
+    var numbers = [2, 4, 6, 8];
+    var list = new List<int> { 10, 20 };
+    var scores = new Dictionary<string, int> { { "Alice", 95 }, { "Bob", 88 } };
+    list.Add(30);
+    scores["Bob"] = 90;
+    printNl("text.Length = " + text.Length);
+    printNl("text.Substring(0, 3) = " + text.Substring(0, 3));
+    printNl("numbers[2] = " + numbers[2]);
+    printNl("list.Count = " + list.Count);
+    printNl("Bob score = " + scores["Bob"]);
+    showTitle("3. branches and loops");
+    if (scores["Alice"] >= 90) {
+        printNl("Alice: excellent");
+    } else {
+        printNl("Alice: keep going");
+    }
+    var loopSum = 0;
+    for (var i = 1; i <= 5; i = i + 1) {
+        loopSum = loopSum + i;
+    }
+    printNl("for sum 1..5 = " + loopSum);
+    var countdown = 3;
+    while (countdown > 0) {
+        printNl("while countdown = " + countdown);
+        countdown = countdown - 1;
+    }
+    printNl("forEach sum = " + sum(numbers));
+    showTitle("4. functions");
+    for (var n = 0; n < 8; n = n + 1) {
+        printNl("fibonacci(" + n + ") = " + fibonacci(n));
+    }
+    showTitle("5. standard library");
+    var odds = range(1, 10, 2);
+    printNl("len(odds) = " + len(odds));
+    printNl("typeOf(odds) = " + typeOf(odds));
+    printNl("isNull(null) = " + isNull(null));
+    printNl("math.sqrt(81) = " + math.sqrt(81));
+    printNl("math.clamp(15, 0, 10) = " + math.clamp(15, 0, 10));
+    printNl("");
+    printNl("Language tour completed. Next: run advanced.fsc");
+    m();
+}

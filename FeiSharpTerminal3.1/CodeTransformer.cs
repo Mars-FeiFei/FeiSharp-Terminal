@@ -8,7 +8,6 @@ public class CodeTransformer
     public static string Transform(string input)
     {
         string result = ExpandCompoundAssignments(input);
-        result = TransformConditionals(result);
         result = TransformAsOperator(result);
         return result;
     }
@@ -87,67 +86,4 @@ public class CodeTransformer
     { "bool", "boolean" },
     { "char", "string" },
 };
-    private static string TransformConditionals(string input)
-    {
-        var lines = input.Split('\n');
-        var result = new List<string>();
-        var ifConditions = new Stack<string>();
-
-        int i = 0;
-        while (i < lines.Length)
-        {
-            string line = lines[i].Trim();
-
-            var ifMatch = Regex.Match(line, @"^if\s*\(([^)]+)\)");
-            if (ifMatch.Success)
-            {
-                string condition = ifMatch.Groups[1].Value;
-                ifConditions.Push(condition);
-                result.Add(lines[i]);
-                i++;
-                continue;
-            }
-
-            var elseIfMatch = Regex.Match(line, @"^else\s+if\s*\(([^)]+)\)");
-            if (elseIfMatch.Success && ifConditions.Count > 0)
-            {
-                string currentCondition = ifConditions.Peek();
-                string newCondition = elseIfMatch.Groups[1].Value;
-                string combinedCondition = $"(({currentCondition}) = false & ({newCondition}))";
-                string newLine = line.Replace(
-                    elseIfMatch.Value,
-                    $"if{combinedCondition}"
-                );
-
-                ifConditions.Pop();
-                ifConditions.Push(combinedCondition);
-                result.Add(newLine);
-                i++;
-                continue;
-            }
-
-            var elseMatch = Regex.Match(line, @"^else\s*(\{)");
-            if (elseMatch.Success && ifConditions.Count > 0)
-            {
-                string currentCondition = ifConditions.Peek();
-
-                string negatedCondition = $"({currentCondition}) = false";
-
-                string newLine = line.Replace(
-                    "else",
-                    $"if({negatedCondition})"
-                );
-
-                ifConditions.Pop();
-                result.Add(newLine);
-                i++;
-                continue;
-            }
-
-            result.Add(lines[i]);
-            i++;
-        }
-
-        return string.Join("\n", result);
-    }
 }

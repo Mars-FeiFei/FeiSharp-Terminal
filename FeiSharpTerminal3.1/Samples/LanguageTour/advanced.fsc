@@ -1,0 +1,46 @@
+namespace Sample.Advanced;
+class counter {
+    protected var value = 0;
+    public static var created = 0;
+    constructor(seed) {
+        this.value = seed;
+        counter.created = counter.created + 1;
+    }
+    public function add(delta) {
+        this.value = this.value + delta;
+        return this.value;
+    }
+    public function current() {
+        return this.value;
+    }
+}
+class limitedCounter : counter {
+    private var limit = 0;
+    constructor(maxValue) {
+        this.limit = maxValue;
+    }
+    public function addSafely(delta) {
+        var next = base.current() + delta;
+        if (next > this.limit) {
+            throw "counter limit exceeded";
+        }
+        return base.add(delta);
+    }
+}
+function m() {
+    printNl("=== classes and objects ===");
+    var first = counter(10);
+    printNl("first.add(5) = " + first.add(5));
+    printNl("counter.created = " + counter.created);
+    printNl("");
+    printNl("=== inheritance and exceptions ===");
+    var safe = limitedCounter(10);
+    printNl("safe.addSafely(3) = " + safe.addSafely(3));
+    printNl("safe.addSafely(4) = " + safe.addSafely(4));
+    try {
+        safe.addSafely(8);
+    } catch (ex) {
+        printNl("caught " + ex.type + " (" + ex.index + "): " + ex.msg);
+    }
+}
+

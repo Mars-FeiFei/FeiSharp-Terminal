@@ -11,6 +11,8 @@ internal sealed class FeiSharpProjectFile
     public bool? IsTrimmedByDotnet { get; set; }
     [JsonPropertyName("clean_build_directory")]
     public bool? IsCleanBuildDirectory { get; set; }
+    [JsonPropertyName("main_function_run")]
+    public bool? IsMainFunctionRun { get; set; }
     [JsonPropertyName("only_copy_executable")]
     public bool? IsOnlyCopyExecutable { get; set; }
     [JsonPropertyName("project_name")]

@@ -1,0 +1,9 @@
+{
+  "project_name": "FeiSharpLanguageTour",
+  "project_main_file": "main.fsc",
+  "sdk_version": 10.0,
+  "trimmed_by_dotnet": false,
+  "clean_build_directory": true,
+  "main_function_run": true,
+  "target_platform": "win-x64"
+}

@@ -1,0 +1,157 @@
+class gameEntity {
+    protected var x = 0;
+    protected var y = 0;
+    constructor(startX, startY) { this.x = startX; this.y = startY; }
+    public function moveTo(nextX, nextY) { this.x = nextX; this.y = nextY; }
+    public function getX() { return this.x; }
+    public function getY() { return this.y; }
+    public function symbol() { return "? "; }
+}
+class foodEntity : gameEntity {
+    constructor(startX, startY) { base.moveTo(startX, startY); }
+    public function symbol() { return "◆ "; }
+    public function points() { return 10; }
+}
+class snakeEntity : gameEntity {
+    constructor(startX, startY) { base.moveTo(startX, startY); }
+    public function symbol() { return "◉ "; }
+    public function bodySymbol() { return "● "; }
+    public function nextX(direction) {
+        var result = this.x;
+        if (direction = "a") { result = result - 1; }
+        if (direction = "d") { result = result + 1; }
+        return result;
+    }
+    public function nextY(direction) {
+        var result = this.y;
+        if (direction = "w") { result = result - 1; }
+        if (direction = "s") { result = result + 1; }
+        return result;
+    }
+}
+class gameStats {
+    private var currentScore = 0;
+    private var moveCount = 0;
+    public function moved() { this.moveCount = this.moveCount + 1; }
+    public function ate(points) { this.currentScore = this.currentScore + points; }
+    public function score() { return this.currentScore; }
+    public function moves() { return this.moveCount; }
+}
+function repeatText(text, count) {
+    var result = "";
+    for (var i = 0; i < count; i = i + 1) { result = result + text; }
+    return result;
+}
+function occupies(x, y, snakeX, snakeY) {
+    var found = false;
+    for (var i = 0; i < snakeX.Count; i = i + 1) {
+        if (snakeX[i] = x && snakeY[i] = y) { found = true; }
+    }
+    return found;
+}
+function hitsBody(x, y, snakeX, snakeY) {
+    var found = false;
+    for (var i = 0; i < snakeX.Count - 1; i = i + 1) {
+        if (snakeX[i] = x && snakeY[i] = y) { found = true; }
+    }
+    return found;
+}
+function wrap(value, size) { return value - math.floor(value / size) * size; }
+function placeFood(width, height, player, food, stats, snakeX, snakeY) {
+    var x = 1 + wrap(player.getX() * 7 + player.getY() * 3 + stats.score() * 11 + 5, width - 2);
+    var y = 1 + wrap(player.getY() * 5 + player.getX() * 2 + stats.score() * 7 + 3, height - 2);
+    while (occupies(x, y, snakeX, snakeY)) {
+        x = x + 1;
+        if (x >= width - 1) {
+            x = 1; y = y + 1;
+            if (y >= height - 1) { y = 1; }
+        }
+    }
+    food.moveTo(x, y);
+}
+function render(width, height, player, food, stats, snakeX, snakeY) {
+    var esc = "$(unicode:001B)[";
+    var reset = esc + "0m";
+    var cyan = esc + "38;2;65;235;255m";
+    var green = esc + "38;2;80;255;145m";
+    var lime = esc + "38;2;190;255;90m";
+    var red = esc + "38;2;255;75;105m";
+    var gray = esc + "38;2;65;95;115m";
+    var white = esc + "38;2;225;250;255m";
+    var muted = esc + "38;2;105;130;145m";
+    var screen = esc + "2J" + esc + "H";
+    screen = screen + cyan + "  ╔══════════════════════════════════════════════╗\n";
+    screen = screen + "  ║" + white + "        F E I S H A R P   S N A K E           " + cyan + "║\n";
+    screen = screen + "  ╚══════════════════════════════════════════════╝" + reset + "\n";
+    screen = screen + "  " + green + "SCORE  " + white + stats.score() + "    " + cyan + "LENGTH  " + white + snakeX.Count + "    " + muted + "MOVES  " + white + stats.moves() + reset + "\n\n";
+    for (var y = 0; y < height; y = y + 1) {
+        screen = screen + "  ";
+        for (var x = 0; x < width; x = x + 1) {
+            if (y = 0 || y = height - 1) { screen = screen + gray + "━━"; }
+            else if (x = 0 || x = width - 1) { screen = screen + gray + "┃ "; }
+            else if (x = player.getX() && y = player.getY()) { screen = screen + lime + player.symbol(); }
+            else if (occupies(x, y, snakeX, snakeY)) { screen = screen + green + player.bodySymbol(); }
+            else if (x = food.getX() && y = food.getY()) { screen = screen + red + food.symbol(); }
+            else { screen = screen + muted + "· "; }
+        }
+        screen = screen + reset + "\n";
+    }
+    screen = screen + "\n  " + cyan + "[W A S D]" + muted + " 移动    " + cyan + "[Q]" + muted + " 退出" + reset + "\n";
+    screen = screen + "  " + gray + "每按一次移动一步；不能直接掉头。吃到 ◆ 就会变长。" + reset + "\n";
+    print(screen);
+}
+function main() {
+    var width = 23;
+    var height = 15;
+    var player = snakeEntity(11, 7);
+    var snakeX = new List<int> { 11, 10, 9, 8 };
+    var snakeY = new List<int> { 7, 7, 7, 7 };
+    var food = foodEntity(1, 1);
+    var stats = gameStats();
+    var direction = "d";
+    var alive = true;
+    var quit = false;
+    var key = "";
+    var nextX = 0;
+    var nextY = 0;
+    var grows = false;
+    placeFood(width, height, player, food, stats, snakeX, snakeY);
+    while (alive && !quit) {
+        render(width, height, player, food, stats, snakeX, snakeY);
+        readKey("pressed");
+        key = pressed.ToLower();
+        if (key = "q") { quit = true; }
+        else {
+            if (key = "w" && direction != "s") { direction = "w"; }
+            if (key = "s" && direction != "w") { direction = "s"; }
+            if (key = "a" && direction != "d") { direction = "a"; }
+            if (key = "d" && direction != "a") { direction = "d"; }
+            nextX = player.nextX(direction);
+            nextY = player.nextY(direction);
+            if (nextX <= 0 || nextX >= width - 1 || nextY <= 0 || nextY >= height - 1) { alive = false; }
+            else if (hitsBody(nextX, nextY, snakeX, snakeY)) { alive = false; }
+            else {
+                grows = nextX = food.getX() && nextY = food.getY();
+                player.moveTo(nextX, nextY);
+                snakeX.Insert(0, nextX);
+                snakeY.Insert(0, nextY);
+                if (!grows) {
+                    snakeX.RemoveAt(snakeX.Count - 1);
+                    snakeY.RemoveAt(snakeY.Count - 1);
+                }
+                stats.moved();
+                if (grows) { stats.ate(food.points()); placeFood(width, height, player, food, stats, snakeX, snakeY); }
+            }
+        }
+    }
+    var esc = "$(unicode:001B)[";
+    if (quit) { print(esc + "2J" + esc + "H" + esc + "38;2;105;180;200m  游戏已退出。最终得分：" + stats.score() + esc + "0m\n"); }
+    else {
+        render(width, height, player, food, stats, snakeX, snakeY);
+        printNl(esc + "38;2;255;75;105m\n  ╔══════════ GAME OVER ══════════╗");
+        printNl("  ║  最终得分 " + stats.score() + "，蛇身长度 " + snakeX.Count + repeatText(" ", 8) + "║");
+        printNl("  ╚═══════════════════════════════╝" + esc + "0m");
+        printNl("  按任意键结束……");
+        readKey("_");
+    }
+}

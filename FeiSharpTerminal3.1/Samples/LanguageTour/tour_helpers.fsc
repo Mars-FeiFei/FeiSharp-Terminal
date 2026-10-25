@@ -1,0 +1,24 @@
+namespace Sample.LanguageTour;
+
+function greet(name) {
+    return "Hello, " + name + "!";
+}
+
+function fibonacci(n) {
+    var previous = 0;
+    var current = 1;
+    for (var i = 0; i < n; i = i + 1) {
+        var next = previous + current;
+        previous = current;
+        current = next;
+    }
+    return previous;
+}
+
+function sum(values) {
+    var total = 0;
+    foreach (var value in values) {
+        total = total + value;
+    }
+    return total;
+}

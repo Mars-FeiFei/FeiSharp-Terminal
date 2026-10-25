@@ -27,12 +27,12 @@ public static class FeiSharpTests
     {
         ("Static Class Method Statement Test", () => {
             RunFeiSharpCode(@"
-class Console {
-    public static function Log(txt) {
-        printnl(txt);
+class console {
+    public static function log(txt) {
+        printNl(txt);
     }
 }
-Console.Log(""Hello"");
+console.log(""Hello"");
 var result = 1;",
                 new ExpectedVariable("result", 1));
         }),
@@ -63,6 +63,15 @@ var result = 1;",
                 new Token(TokenTypes.EndOfFile, "")
             });
         }),
+        ("When Otherwise Expression Test", () => {
+            RunFeiSharpCode(@"
+var selected = ""yes"" when 3 > 2 otherwise ""no"";
+var fallback = ""yes"" when false otherwise ""no"";
+var absent = 10 when false;",
+                new ExpectedVariable("selected", "yes"),
+                new ExpectedVariable("fallback", "no"),
+                new ExpectedVariable("absent", null));
+        }),
         ("Multiplication Test", () => {
             RunFeiSharpCode(@"
 var x = 3 * 4 * 5;",
@@ -84,7 +93,7 @@ var orv = false || false;",
         ("Power Test", () => {
             RunFeiSharpCode(@"
 var x = 0;
-oldpow(""x"", 2, 3);",
+oldPow(""x"", 2, 3);",
                 new ExpectedVariable("x", 8));
         }),
         ("Brace Function Scope Test", () => {
@@ -108,13 +117,13 @@ if(true) {
         }),
         ("Class Inheritance Constructor Field Test", () => {
             RunFeiSharpCode(@"
-class Base {
+class baseCounter {
     var baseValue = 2;
     public function readBase() {
         return baseValue;
     }
 }
-class Child : Base {
+class childCounter : baseCounter {
     var value = 0;
     constructor(seed) {
         value = seed + baseValue;
@@ -123,13 +132,13 @@ class Child : Base {
         return value;
     }
 }
-var a = Child(5);
+var a = childCounter(5);
 var result = a.getValue();",
                 new ExpectedVariable("result", 7));
         }),
         ("This Keyword Member Access Test", () => {
             RunFeiSharpCode(@"
-class Counter {
+class counterType {
     var value = 1;
     public function add(delta) {
         this.value = this.value + delta;
@@ -139,7 +148,7 @@ class Counter {
         return this.value;
     }
 }
-var counter = Counter();
+var counter = counterType();
 var result = counter.add(4);
 var result2 = counter.read();",
                 new ExpectedVariable("result", 5),
@@ -147,39 +156,39 @@ var result2 = counter.read();",
         }),
         ("Base Keyword Public Method Test", () => {
             RunFeiSharpCode(@"
-class Base {
+class baseType {
     public function seed() {
         return 3;
     }
 }
-class Child : Base {
+class childType : baseType {
     public function calc() {
         return base.seed() + 4;
     }
 }
-var child = Child();
+var child = childType();
 var result = child.calc();",
                 new ExpectedVariable("result", 7));
         }),
         ("Protected Method Inheritance Test", () => {
             RunFeiSharpCode(@"
-class Base {
+class protectedBase {
     protected function seed() {
         return 3;
     }
 }
-class Child : Base {
+class protectedChild : protectedBase {
     public function calc() {
         return base.seed() + 4;
     }
 }
-var child = Child();
+var child = protectedChild();
 var result = child.calc();",
                 new ExpectedVariable("result", 7));
         }),
         ("Protected Member Access Rejected Test", () => {
             RunFeiSharpCode(@"
-class Demo {
+class demoType {
     protected function secret() {
         return 9;
     }
@@ -187,7 +196,7 @@ class Demo {
         return this.secret();
     }
 }
-var demo = Demo();
+var demo = demoType();
 var ok = demo.expose();
 try {
     var bad = demo.secret();
@@ -225,26 +234,26 @@ try {
         }),
         ("Static Class Method Invocation Test", () => {
             RunFeiSharpCode(@"
-class Console {
-    public static function Log(txt) {
-        printnl(txt);
+class console {
+    public static function log(txt) {
+        printNl(txt);
         return txt;
     }
 }
-var result = Console.Log(""Hello"");",
+var result = console.log(""Hello"");",
                 new ExpectedVariable("result", "Hello"));
         }),
         
         ("Static Class Keyword-Like Method Invocation Test", () => {
             RunFeiSharpCode(@"
-class Console {
+class console {
     public static var str = """";
-    public static function Write() {
+    public static function write() {
         return str;
     }
 }
-Console.str = ""hello"";
-var result = Console.Write();",
+console.str = ""hello"";
+var result = console.write();",
                 new ExpectedVariable("result", "hello"));
         }),
         ("Try Catch Error Metadata Test", () => {
@@ -275,7 +284,7 @@ try {
         }),
         ("Variable Modifier Access Test", () => {
             RunFeiSharpCode(@"
-class Demo {
+class demoType {
     public var open = 3;
     protected var shield = 4;
     private var secret = 5;
@@ -287,9 +296,9 @@ class Demo {
         return this.shield;
     }
 }
-var demo = Demo();
+var demo = demoType();
 var a = demo.open;
-var b = Demo.shared;
+var b = demoType.shared;
 var c = demo.exposeSecret();
 try {
     var bad0 = demo.shared;
@@ -319,16 +328,47 @@ try {
                 new ExpectedVariable("errType2", "SemanticError"),
                 new ExpectedVariable("errNo2", "FS3001"));
         }),
+        ("Const Declaration And Class Access Test", () => {
+            RunFeiSharpCode(@"
+const answer = 42;
+var copied = answer;
+try {
+    answer = 0;
+} catch(ex) {
+    var constError = ex.type;
+}
+class configType {
+    public const limit = 9;
+    private const secret = 2;
+    public function reveal() {
+        return this.secret;
+    }
+}
+var config = configType();
+var exposedLimit = config.limit;
+var exposedSecret = config.reveal();
+try {
+    config.limit = 0;
+} catch(ex) {
+    var memberConstError = ex.type;
+}
+",
+                new ExpectedVariable("copied", 42),
+                new ExpectedVariable("constError", "SemanticError"),
+                new ExpectedVariable("exposedLimit", 9),
+                new ExpectedVariable("exposedSecret", 2),
+                new ExpectedVariable("memberConstError", "SemanticError"));
+        }),
         ("Assignment Syntax Test", () => {
             RunFeiSharpCode(@"
-class Base {
+class assignmentBase {
     var seed = 1;
     public function setSeed(v) {
         base.seed = v;
         return base.seed;
     }
 }
-class Child : Base {
+class assignmentChild : assignmentBase {
     var value = 0;
     constructor(seed) {
         this.value = seed;
@@ -338,17 +378,17 @@ class Child : Base {
         return this.value;
     }
 }
-class Config {
+class assignmentConfig {
     static var defaultValue = 2;
 }
-Config.defaultValue = 7;
-var item = Child(0);
+assignmentConfig.defaultValue = 7;
+var item = assignmentChild(0);
 var r1 = item.assign(5);
 var r2 = item.setSeed(9);
 item.value = 11;
-item = Child(3);
+item = assignmentChild(3);
 var r3 = item.value;
-var r4 = Config.defaultValue;",
+var r4 = assignmentConfig.defaultValue;",
                 new ExpectedVariable("r1", 5),
                 new ExpectedVariable("r2", 9),
                 new ExpectedVariable("r3", 3),
@@ -365,6 +405,12 @@ var idx = text.IndexOf(""ll"");",
                 new ExpectedVariable("len", 5),
                 new ExpectedVariable("part", "ell"),
                 new ExpectedVariable("idx", 2));
+        }),
+        ("Backslash String Literal Print Test", () => {
+            RunFeiSharpCode(@"
+printNl(""\\\\"");
+var ok = 1;",
+                new ExpectedVariable("ok", 1));
         }),
         ("Array List Dictionary Syntax Test", () => {
             RunFeiSharpCode(@"
@@ -388,6 +434,89 @@ var r6 = dict.Count;",
                 new ExpectedVariable("r4", 3),
                 new ExpectedVariable("r5", 20),
                 new ExpectedVariable("r6", 3));
+        }),
+        ("Standard API Functions And Math Class Test", () => {
+            RunFeiSharpCode(@"
+var textLength = len(""FeiSharp"");
+var arrayLength = len([1, 2, 3]);
+var emptyRange = range(3, 3);
+var emptyCount = emptyRange.Count;
+var ascending = range(1, 6, 2);
+var descending = range(5, 0, -2);
+var type1 = typeOf(ascending);
+var type2 = typeOf(null);
+var nullCheck = isNull(null);
+var r1 = ascending[2];
+var r2 = descending[2];
+var absValue = math.abs(-4);
+var clampValue = math.clamp(12, 0, 10);
+var rounded = math.round(3.14159, 2);
+var root = math.sqrt(81);
+var piValue = math.pi;",
+                new ExpectedVariable("textLength", 8),
+                new ExpectedVariable("arrayLength", 3),
+                new ExpectedVariable("emptyCount", 0),
+                new ExpectedVariable("type1", "list"),
+                new ExpectedVariable("type2", "null"),
+                new ExpectedVariable("nullCheck", true),
+                new ExpectedVariable("r1", 5),
+                new ExpectedVariable("r2", 1),
+                new ExpectedVariable("absValue", 4),
+                new ExpectedVariable("clampValue", 10),
+                new ExpectedVariable("rounded", 3.14),
+                new ExpectedVariable("root", 9),
+                new ExpectedVariable("piValue", Math.PI));
+        }),
+        ("Detailed FS Error Codes Test", () => {
+            AssertFeiSharpErrorCode("var value = len 1;", "FS2004");
+            AssertFeiSharpErrorCode("var value = missingName;", "FS3004");
+            AssertFeiSharpErrorCode("var value = math.unknown(1);", "FS3004");
+            AssertFeiSharpErrorCode("var value = range(0, 5, 0);", "FS3005");
+            AssertFeiSharpErrorCode("var value = len(12);", "FS3006");
+            AssertFeiSharpErrorCode("var values = [1]; var value = values[3];", "FS3007");
+            AssertFeiSharpErrorCode("var target = null; var value = target.Length;", "FS3008");
+            AssertFeiSharpErrorCode("const answer = 42; answer = 0;", "FS3009");
+        }),
+        ("Lower Camel Naming Convention Test", () => {
+            RunFeiSharpCode(@"
+class sampleCounter {
+    public function getValue() {
+        return 7;
+    }
+}
+var counter = sampleCounter();
+var result = counter.getValue();
+var upperMath = Math.ABS(-1);
+var upperGlobal = TYPEOF(upperMath);
+class SampleType {
+    public function GetValue() { return 8; }
+}
+var mixedCase = SampleType();
+var mixedResult = mixedCase.getvalue();",
+                new ExpectedVariable("result", 7),
+                new ExpectedVariable("upperMath", 1),
+                new ExpectedVariable("upperGlobal", "number"),
+                new ExpectedVariable("mixedResult", 8));
+        }),
+        ("File Directory And Path API Test", TestFileApis),
+        ("HTTP API Test", TestHttpApis),
+        ("JavaScript JSON Interop Test", () => {
+            RunFeiSharpCode(@"
+var encoded = js.stringify([1, ""ok""]);
+var parsed = js.parse(""[42, true]"");
+var value = parsed[0];
+var enabled = parsed[1];
+var answer = js.eval(""1 + 2"");",
+                new ExpectedVariable("encoded", "[1,\"ok\"]"),
+                new ExpectedVariable("value", 42),
+                new ExpectedVariable("enabled", true),
+                new ExpectedVariable("answer", 3));
+        }),
+        ("IO And Network API Error Test", () => {
+            AssertFeiSharpErrorCode("var value = file.exists(\"missing.txt\");", "FS3010");
+            AssertFeiSharpErrorCode("var value = http.get(\"http://127.0.0.1/\");", "FS3010");
+            AssertFeiSharpErrorCode("using FeiSharp.IO; var value = file.readText(\"__missing_feisharp_file__\");", "FS5001");
+            AssertFeiSharpErrorCode("using FeiSharp.Net; var value = http.get(\"not-a-url\");", "FS5002");
         }),
         ("While Array Index And Stop Condition Test", () => {
             RunFeiSharpCode(@"
@@ -710,5 +839,137 @@ for(var a = 0; a < 100; a = a + 1) {
                     $"  Actual: {actual.Type} '{actual.Value}'");
             }
         }
+    }
+
+    static void TestFileApis()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"FeiSharpApiTests_{Guid.NewGuid():N}");
+        string scriptPath = root.Replace('\\', '/');
+        try
+        {
+            RunFeiSharpCode($@"
+using FeiSharp.IO;
+var root = ""{scriptPath}"";
+var createdPath = directory.create(root);
+var directoryExists = directory.exists(root);
+var first = path.combine(root, ""first.txt"");
+var copied = path.combine(root, ""copied.txt"");
+var moved = path.combine(root, ""moved.txt"");
+file.writeText(first, ""hello"");
+file.appendText(first, "" world"");
+var content = file.readText(first);
+file.copy(first, copied);
+file.move(copied, moved);
+var fileExists = file.exists(moved);
+var files = directory.getFiles(root, ""*.txt"");
+var fileCount = len(files);
+var fileName = path.getFileName(moved);
+var extension = path.getExtension(moved);
+var changed = path.changeExtension(moved, "".log"");
+var changedExtension = path.getExtension(changed);
+var currentDirectory = directory.current;
+var temporaryPath = path.tempPath;
+var separator = path.separator;
+file.delete(first);
+file.delete(moved);
+directory.delete(root);
+var removed = !directory.exists(root);",
+                new ExpectedVariable("directoryExists", true),
+                new ExpectedVariable("content", "hello world"),
+                new ExpectedVariable("fileExists", true),
+                new ExpectedVariable("fileCount", 2),
+                new ExpectedVariable("fileName", "moved.txt"),
+                new ExpectedVariable("extension", ".txt"),
+                new ExpectedVariable("changedExtension", ".log"),
+                new ExpectedVariable("removed", true));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
+    static void TestHttpApis()
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        Task server = Task.Run(async () =>
+        {
+            try
+            {
+                for (int i = 0; i < 6; i++)
+                {
+                    using System.Net.Sockets.TcpClient client = await listener.AcceptTcpClientAsync();
+                    using System.Net.Sockets.NetworkStream stream = client.GetStream();
+                    byte[] request = new byte[4096];
+                    await stream.ReadAsync(request);
+                    byte[] response = System.Text.Encoding.ASCII.GetBytes(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+                    await stream.WriteAsync(response);
+                }
+            }
+            catch (System.Net.Sockets.SocketException) when (!listener.Server.IsBound)
+            {
+            }
+        });
+
+        try
+        {
+            RunFeiSharpCode($@"
+using FeiSharp.Net;
+var body = http.get(""http://127.0.0.1:{port}/get"");
+var status = http.getStatus(""http://127.0.0.1:{port}/status"");
+var posted = http.post(""http://127.0.0.1:{port}/post"", ""payload"", ""text/plain"");
+var jsonBody = http.getJson(""http://127.0.0.1:{port}/json"");
+var jsonPayload = js.stringify([1]);
+var postedJson = http.postJson(""http://127.0.0.1:{port}/post-json"", jsonPayload);
+var requested = http.request(""http://127.0.0.1:{port}/request"", ""PUT"", ""payload"", ""text/plain"");",
+                new ExpectedVariable("body", "ok"),
+                new ExpectedVariable("status", 200),
+                new ExpectedVariable("posted", "ok"),
+                new ExpectedVariable("jsonBody", "ok"),
+                new ExpectedVariable("postedJson", "ok"),
+                new ExpectedVariable("requested", "ok"));
+            server.GetAwaiter().GetResult();
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    static void AssertFeiSharpErrorCode(string code, string expectedCode)
+    {
+        Lexer lexer = new(code);
+        List<Token> tokens = [];
+        Token token;
+        do
+        {
+            token = lexer.NextToken();
+            tokens.Add(token);
+        } while (token.Type != TokenTypes.EndOfFile);
+
+        Parser parser = new(tokens);
+        typeof(Parser)
+            .GetField("_propagateFeiSharpExceptions", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(parser, true);
+
+        try
+        {
+            parser.ParseStatements();
+        }
+        catch (System.Exception ex)
+        {
+            string? actualCode = ex.GetType().GetProperty("Number")?.GetValue(ex)?.ToString();
+            if (actualCode == expectedCode)
+            {
+                return;
+            }
+            throw new AssertionException($"Expected error code '{expectedCode}', actual '{actualCode ?? ex.GetType().Name}'.");
+        }
+
+        throw new AssertionException($"Expected error code '{expectedCode}', but the code completed successfully.");
     }
 }

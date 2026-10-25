@@ -21,6 +21,8 @@ namespace FeiSharpStudio
         public bool IsStatic { get; internal set; }
         public bool IsClassMember { get; internal set; }
         public string? DeclaringClassName { get; internal set; }
+        public string? Namespace { get; internal set; }
+        public HashSet<string>? UsingNamespaces { get; internal set; }
         public FunctionInfo(
             string name,
             IEnumerable<string> parameter,

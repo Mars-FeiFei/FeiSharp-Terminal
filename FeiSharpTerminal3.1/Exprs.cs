@@ -42,6 +42,11 @@ namespace FeiSharpStudio
         public object Value { get; set; }
         public ValueExpr(object value) { Value = value; }
     }
+    public class RuntimeValueExpr : Expr
+    {
+        public object? Value { get; }
+        public RuntimeValueExpr(object? value) { Value = value; }
+    }
     public class StringExpr : Expr
     {
         public string Value { get; set; }
@@ -62,6 +67,19 @@ namespace FeiSharpStudio
             Left = left;
             Operator = op;
             Right = right;
+        }
+    }
+    public class ConditionalExpr : Expr
+    {
+        public Expr TrueValue { get; }
+        public Expr Condition { get; }
+        public Expr? FalseValue { get; }
+
+        public ConditionalExpr(Expr trueValue, Expr condition, Expr? falseValue)
+        {
+            TrueValue = trueValue;
+            Condition = condition;
+            FalseValue = falseValue;
         }
     }
 }

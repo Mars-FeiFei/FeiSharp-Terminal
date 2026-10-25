@@ -1,0 +1,29 @@
+import "$prelude.fsc";
+function fibonacci(n) {
+    if (n <= 1) {
+        return n;
+    } else {
+        return fibonacci(n - 1) + fibonacci(n - 2);
+    }
+}
+print("=== 斐波那契数列前 10 项 ===");
+for (var i = 0; i < 10; i++) {
+    var result = fibonacci(i);
+    print("第 " + i + " 项: " + result);
+}
+print("\n=== 使用 while 循环计算平方 ===");
+var count = 0;
+while (count < 5) {
+    var square = count * count;
+    print(count + " 的平方是: " + square);
+    count++;
+}
+print("\n=== 数学运算示例 ===");
+var base = 2;
+var exponent = 3;
+var powerResult = pow(base, exponent);
+print(base + " 的 " + exponent + " 次方是: " + powerResult);
+var radius = 5;
+var area = pi * radius * radius;
+print("半径为 " + radius + " 的圆面积是: " + area);
+print("\n程序执行完毕！");

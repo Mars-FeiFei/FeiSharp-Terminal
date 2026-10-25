@@ -264,6 +264,52 @@ namespace FeiSharpTerminal3._1.ExceptionThrow
                 suggestions.Add("'public', 'private' keyword can only be used inside class declarations");
                 suggestions.Add("Move this declaration inside a class or remove the 'public' or 'private' keyword");
             }
+            else if (errorCode == FeiSharpErrorCodes.MissingDelimiter)
+            {
+                suggestions.Add("Add the missing parenthesis, bracket, brace, comma, or member-access dot");
+            }
+            else if (errorCode == FeiSharpErrorCodes.UndefinedSymbol)
+            {
+                suggestions.Add("Declare the variable, function, class, or member before using it");
+                suggestions.Add("Check spelling and imported namespaces");
+            }
+            else if (errorCode == FeiSharpErrorCodes.InvalidArgument)
+            {
+                suggestions.Add("Check the function's argument count and allowed value range");
+            }
+            else if (errorCode == FeiSharpErrorCodes.TypeMismatch)
+            {
+                suggestions.Add("Convert the value to the type required by this operation");
+            }
+            else if (errorCode == FeiSharpErrorCodes.IndexOutOfRange)
+            {
+                suggestions.Add("Use an index between zero and the collection length minus one");
+            }
+            else if (errorCode == FeiSharpErrorCodes.NullReference)
+            {
+                suggestions.Add("Check for null with isNull(value) before member or index access");
+            }
+            else if (errorCode == FeiSharpErrorCodes.ReadonlyViolation)
+            {
+                suggestions.Add("Do not assign to const or readonly values after declaration");
+            }
+            else if (errorCode == FeiSharpErrorCodes.NamespaceNotImported)
+            {
+                suggestions.Add("Import the required namespace before using this API class");
+                suggestions.Add("Use 'using FeiSharp.IO;' for file APIs or 'using FeiSharp.Net;' for network APIs");
+            }
+            else if (errorCode == FeiSharpErrorCodes.FileOperationFailed)
+            {
+                suggestions.Add("Check that the path exists and the process has permission to access it");
+            }
+            else if (errorCode == FeiSharpErrorCodes.NetworkRequestFailed)
+            {
+                suggestions.Add("Check the URL, protocol, network connection, and remote server status");
+            }
+            else if (errorCode == FeiSharpErrorCodes.NetworkTimeout)
+            {
+                suggestions.Add("Retry later or check whether the remote server responds within 30 seconds");
+            }
 
             return suggestions;
         }
