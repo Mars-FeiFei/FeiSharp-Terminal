@@ -3,6 +3,10 @@ using System.Globalization;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Linq.Expressions;
+using System.Reflection;
+using System.Drawing;
+using System.Windows.Forms;
 using Jint;
 using Microsoft.Playwright;
 using FeiSharpTerminal3._1;
@@ -16,6 +20,8 @@ namespace FeiSharpStudio;
 /// </summary>
 internal static class StandardLibrary
 {
+    internal static Func<string, IReadOnlyList<object?>, object?>? UiFunctionInvoker { get; set; }
+    internal static Func<object, string, IReadOnlyList<object?>, object?>? UiMethodInvoker { get; set; }
     private static readonly HashSet<string> GlobalFunctions = new(StringComparer.OrdinalIgnoreCase)
     {
         "len",
@@ -32,7 +38,9 @@ internal static class StandardLibrary
         || name.Equals("path", StringComparison.OrdinalIgnoreCase)
         || name.Equals("http", StringComparison.OrdinalIgnoreCase)
         || name.Equals("js", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("web", StringComparison.OrdinalIgnoreCase);
+        || name.Equals("web", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("console", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("ui", StringComparison.OrdinalIgnoreCase);
 
     internal static object? InvokeGlobal(string name, IReadOnlyList<object?> args)
     {
@@ -112,6 +120,10 @@ internal static class StandardLibrary
                 return InvokeJavaScript(memberName, args);
             if (className == "web")
                 return InvokeWeb(memberName, args);
+            if (className == "console")
+                return InvokeConsole(memberName, args);
+            if (className == "ui")
+                return InvokeUi(memberName, args);
             throw new StandardLibraryException(FeiSharpErrorCodes.UndefinedSymbol, $"Unknown standard class: {className}.");
         }
         catch (StandardLibraryException)
@@ -352,6 +364,146 @@ internal static class StandardLibrary
         }
     }
 
+    private static object InvokeConsole(string memberName, IReadOnlyList<object?> args)
+    {
+        string apiName = $"console.{memberName}";
+        switch (memberName.ToLowerInvariant())
+        {
+            case "keyavailable":
+                RequireArgumentCount(apiName, args, 0);
+                return Console.KeyAvailable;
+            case "readkey":
+                RequireArgumentCount(apiName, args, 0);
+                return Console.ReadKey(intercept: true).KeyChar.ToString();
+            case "sleep":
+                RequireArgumentCount(apiName, args, 1);
+                Thread.Sleep(ToInt(args[0], apiName));
+                return true;
+            default:
+                throw new StandardLibraryException(FeiSharpErrorCodes.UndefinedSymbol, $"Undefined static method: {apiName}.");
+        }
+    }
+
+    // FeiSharp UI is intentionally an ordinary standard class: scripts use
+    // ui.createForm(...) and ui.createButton(...), not a second markup syntax.
+    private static object InvokeUi(string memberName, IReadOnlyList<object?> args)
+    {
+        const string api = "ui";
+        switch (memberName.ToLowerInvariant())
+        {
+            case "create":
+                RequireArgumentCount("ui.create", args, 7);
+                if (args[0] is not Form genericForm) throw new StandardLibraryException(FeiSharpErrorCodes.TypeMismatch, "The first UI argument must be a form.");
+                var requestedType = ToText(args[1], api);
+                var genericType = typeof(Control).Assembly.GetType($"System.Windows.Forms.{requestedType}");
+                if (genericType == null || !typeof(Control).IsAssignableFrom(genericType)) throw new StandardLibraryException(FeiSharpErrorCodes.UndefinedSymbol, $"Unknown UI control type '{requestedType}'.");
+                var genericControl = (Control)Activator.CreateInstance(genericType)!;
+                genericControl.Location = new Point(ToInt(args[3], api), ToInt(args[4], api));
+                genericControl.Size = new Size(ToInt(args[5], api), ToInt(args[6], api));
+                var textProperty = genericType.GetProperty("Text");
+                if (textProperty?.CanWrite == true) textProperty.SetValue(genericControl, ToText(args[2], api));
+                genericForm.Controls.Add(genericControl); return genericControl;
+            case "createtimer":
+                RequireArgumentCount("ui.createTimer", args, 1);
+                return new FeiSharpTimer { Interval = Math.Max(1, ToInt(args[0], api)) };
+            case "start":
+                RequireArgumentCount("ui.start", args, 1);
+                if (args[0] is not System.Windows.Forms.Timer timerToStart) throw new StandardLibraryException(FeiSharpErrorCodes.TypeMismatch, "ui.start expects a timer.");
+                timerToStart.Start(); return true;
+            case "stop":
+                RequireArgumentCount("ui.stop", args, 1);
+                if (args[0] is not System.Windows.Forms.Timer timerToStop) throw new StandardLibraryException(FeiSharpErrorCodes.TypeMismatch, "ui.stop expects a timer.");
+                timerToStop.Stop(); return true;
+            case "createform":
+                RequireArgumentCount("ui.createForm", args, 3);
+                return new Form { Text = ToText(args[0], api), ClientSize = new Size(ToInt(args[1], api), ToInt(args[2], api)), AutoScaleMode = AutoScaleMode.None, StartPosition = FormStartPosition.CenterScreen };
+            case "createlabel": return AddUiControl<Label>(args, (control, text) => { control.Text = text; control.AutoSize = false; control.TextAlign = ContentAlignment.MiddleCenter; });
+            case "createbutton": return AddUiControl<Button>(args, (control, text) => control.Text = text);
+            case "createtextbox": return AddUiControl<TextBox>(args, (control, text) => control.Text = text);
+            case "createcheckbox": return AddUiControl<CheckBox>(args, (control, text) => control.Text = text);
+            case "createprogressbar": return AddUiControl<ProgressBar>(args, (control, _) => control.Value = 0);
+            case "show":
+                RequireArgumentCount("ui.show", args, 1);
+                if (args[0] is not Form form) throw new StandardLibraryException(FeiSharpErrorCodes.TypeMismatch, "ui.show expects a form.");
+                Application.Run(form); return true;
+            case "get":
+                RequireArgumentCount("ui.get", args, 2);
+                if (args[0] == null) throw new StandardLibraryException(FeiSharpErrorCodes.TypeMismatch, "ui.get expects an object.");
+                var property = args[0].GetType().GetProperty(ToText(args[1], api), BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (property == null || !property.CanRead) throw new StandardLibraryException(FeiSharpErrorCodes.UndefinedSymbol, $"UI property '{args[1]}' was not found.");
+                return property.GetValue(args[0]);
+            case "set":
+            case "setsf":
+                RequireArgumentCount("ui.set", args, 3);
+                if (args[0] == null) throw new StandardLibraryException(FeiSharpErrorCodes.TypeMismatch, "ui.set expects an object.");
+                var propertyToSet = args[0].GetType().GetProperty(ToText(args[1], api), BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (propertyToSet == null || !propertyToSet.CanWrite) throw new StandardLibraryException(FeiSharpErrorCodes.UndefinedSymbol, $"UI property '{args[1]}' was not found or is read-only.");
+                propertyToSet.SetValue(args[0], ConvertUiValue(args[2], propertyToSet.PropertyType)); return true;
+            case "on":
+                RequireArgumentCount("ui.on", args, 3);
+                if (args[0] == null || UiFunctionInvoker == null) throw new StandardLibraryException(FeiSharpErrorCodes.TypeMismatch, "ui.on expects an event source and a loaded FeiSharp function.");
+                var eventTarget = args[0];
+                var eventInfo = eventTarget.GetType().GetEvent(ToText(args[1], api), BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (eventInfo?.EventHandlerType == null) throw new StandardLibraryException(FeiSharpErrorCodes.UndefinedSymbol, $"UI event '{args[1]}' was not found.");
+                var handlerName = ToText(args[2], api);
+                eventInfo.AddEventHandler(eventTarget, CreateUiEventHandler(eventInfo.EventHandlerType, handlerName)); return true;
+            case "onmethod":
+                RequireArgumentCount("ui.onMethod", args, 4);
+                if (args[0] == null || args[2] == null || UiMethodInvoker == null) throw new StandardLibraryException(FeiSharpErrorCodes.TypeMismatch, "ui.onMethod expects an event source, a FeiSharp object, and a method name.");
+                var methodEventTarget = args[0];
+                var methodEventInfo = methodEventTarget.GetType().GetEvent(ToText(args[1], api), BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (methodEventInfo?.EventHandlerType == null) throw new StandardLibraryException(FeiSharpErrorCodes.UndefinedSymbol, $"UI event '{args[1]}' was not found.");
+                eventInfo = methodEventInfo;
+                eventInfo.AddEventHandler(methodEventTarget, CreateUiMethodEventHandler(eventInfo.EventHandlerType, args[2], ToText(args[3], api))); return true;
+            default: throw new StandardLibraryException(FeiSharpErrorCodes.UndefinedSymbol, $"Undefined UI method: ui.{memberName}.");
+        }
+    }
+
+    private static T AddUiControl<T>(IReadOnlyList<object?> args, Action<T, string> initialize) where T : Control, new()
+    {
+        RequireArgumentCount($"ui.create{typeof(T).Name}", args, 6);
+        if (args[0] is not Form form) throw new StandardLibraryException(FeiSharpErrorCodes.TypeMismatch, "The first UI argument must be a form.");
+        var control = new T { Location = new Point(ToInt(args[2], "ui"), ToInt(args[3], "ui")), Size = new Size(ToInt(args[4], "ui"), ToInt(args[5], "ui")) };
+        initialize(control, ToText(args[1], "ui")); form.Controls.Add(control); return control;
+    }
+
+    private static Delegate CreateUiEventHandler(Type eventType, string handlerName)
+    {
+        var invoke = eventType.GetMethod("Invoke") ?? throw new StandardLibraryException(FeiSharpErrorCodes.TypeMismatch, "Invalid UI event type.");
+        var parameters = invoke.GetParameters().Select(p => Expression.Parameter(p.ParameterType, p.Name)).ToArray();
+        var args = Expression.NewArrayInit(typeof(object), parameters.Select(p => Expression.Convert(p, typeof(object))));
+        var call = Expression.Call(typeof(StandardLibrary), nameof(DispatchUiEvent), null, Expression.Constant(handlerName), args);
+        Expression body = invoke.ReturnType == typeof(void) ? Expression.Block(call, Expression.Empty()) : call;
+        return Expression.Lambda(eventType, body, parameters).Compile();
+    }
+
+    public static object? DispatchUiEvent(string handlerName, object?[] args) => UiFunctionInvoker?.Invoke(handlerName, args);
+
+    public static object? DispatchUiMethodEvent(object target, string methodName, object?[] args) => UiMethodInvoker?.Invoke(target, methodName, args);
+
+    private static Delegate CreateUiMethodEventHandler(Type eventType, object target, string methodName)
+    {
+        var invoke = eventType.GetMethod("Invoke") ?? throw new StandardLibraryException(FeiSharpErrorCodes.TypeMismatch, "Invalid UI event type.");
+        var parameters = invoke.GetParameters().Select(p => Expression.Parameter(p.ParameterType, p.Name)).ToArray();
+        var args = Expression.NewArrayInit(typeof(object), parameters.Select(p => Expression.Convert(p, typeof(object))));
+        var call = Expression.Call(typeof(StandardLibrary), nameof(DispatchUiMethodEvent), null, Expression.Constant(target), Expression.Constant(methodName), args);
+        Expression body = invoke.ReturnType == typeof(void) ? Expression.Block(call, Expression.Empty()) : call;
+        return Expression.Lambda(eventType, body, parameters).Compile();
+    }
+
+    private sealed class FeiSharpTimer : System.Windows.Forms.Timer
+    {
+        public object? Tag { get; set; }
+    }
+
+    private static object? ConvertUiValue(object? value, Type targetType)
+    {
+        if (value == null) return null;
+        if (targetType.IsInstanceOfType(value)) return value;
+        if (targetType.IsEnum) return Enum.Parse(targetType, ToText(value, "ui"), true);
+        return Convert.ChangeType(value, Nullable.GetUnderlyingType(targetType) ?? targetType, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     private static object? ConvertJsonElement(JsonElement element) => element.ValueKind switch
     {
         JsonValueKind.Object => element.EnumerateObject()
@@ -461,6 +613,7 @@ internal static class StandardLibrary
         Array => "array",
         IDictionary => "dictionary",
         IList => "list",
+        Parser.ClassInstance instance => instance.ClassName,
         _ => value.GetType().Name
     };
 

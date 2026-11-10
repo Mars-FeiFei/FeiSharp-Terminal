@@ -14,7 +14,8 @@ FeiSharp 是运行于 .NET 8 Windows 宿主中的动态类型脚本语言，语�
 - `$` 是乘方，`^` 是整数按位 XOR；
 - 脚本可在顶层执行；精确形式 `function main(` 会被 CLI 默认自动调用；
 - 用户函数优先于同名标准函数，允许有意覆盖内置项；
-- 类的实例化写作 `typeName(args)`，不是必须写 `new`；
+- 类的实例化统一写作 `new TypeName(args)`；
+- 用户类和函数支持泛型参数语法，例如 `class pair<t1, t2> { ... }`、`function identity<t>(value) { ... }`，调用时可写 `new pair<int, string>(1, "ok")` 和 `identity<int>(1)`；当前泛型参数用于语法标注，运行时仍采用动态类型；
 - 文件加载与命名空间导入是两件不同的事。
 
 ## 2. 运行、项目与构建
@@ -221,20 +222,22 @@ var score = clampScore(120, 0, 100);
 ```feisharp
 var array = [1, 2, 3];
 var typedArray = new int[] { 4, 5, 6 };
-var list = new List<string> { "a", "b" };
-var map = new Dictionary<string, int> { { "a", 1 }, { "b", 2 } };
+var list = new list<string> { "a", "b" };
+var map = new dictionary<string, int> { { "a", 1 }, { "b", 2 } };
 
-list.Add("c");
+list.add("c");
 list[0] = "A";
-map.Add("c", 3);
+map.add("c", 3);
 map["b"] = 20;
 
 printNl(array.Length);
-printNl(list.Count);
-printNl(map.Count);
+printNl(list.count);
+printNl(map.count);
 ```
 
 实现通过反射访问公开的 .NET 属性、字段和方法，并尝试按参数类型转换，因此常见的 `Length`、`Count`、`Add`、字符串 `Substring`/`IndexOf` 可直接使用。它不是完整的 C# 互操作层：重载解析、泛型类型集合与可用类型均受解析器白名单/运行时实现限制。
+
+字符串成员优先使用小驼峰命名。除兼容已有的 .NET 成员外，字符串还提供 `length`、`isEmpty`、`isNullOrWhiteSpace`、`toUpper()`、`toLower()`、`trim()`、`trimStart()`、`trimEnd()`、`contains()`、`startsWith()`、`endsWith()`、`indexOf()`、`lastIndexOf()`、`substring()`、`charAt()`、`replace()`、`insert()`、`remove()`、`padLeft()`、`padRight()`、`repeat()`、`toCharArray()`、`reverse()` 和 `split()` 等成员。
 
 `range` 返回整数列表，终点不包含：
 
@@ -291,7 +294,7 @@ printNl(counter.created);
 
 语义摘要：
 
-- `constructor` 是特殊构造函数；实例化通常写 `counter(10)`；
+- `constructor` 是特殊构造函数；实例化写作 `new counter(10)`；
 - 字段和方法支持 `public`、`protected`、`private`；
 - 类成员默认方法可见性是 `private`，字段未显式修饰时也应视为内部实现；
 - `static` 只允许在类内；静态成员通过类名访问，不能通过实例访问；
@@ -513,10 +516,12 @@ var numberValue = number.parse(text);
 | 不等 | `a != b` | 与三种语言常见写法一致 |
 | 乘方 | `a $ b` | Python `**`、JS `**`、C# `Math.Pow` |
 | 条件值 | `x when c otherwise y` | 对应 C#/JS `c ? x : y`、Python `x if c else y` |
-| 函数 | `function f(a) { return a; }` | 无类型标注、无 `def`/箭头函数语法 |
-| 列表 | `new List<int> { 1 }` | 接近 C#；也可用 `[1]` 数组字面量 |
-| 字典 | `new Dictionary<string,int> { { "a", 1 } }` | 当前写法最接近 C# 初始化器 |
-| 构造对象 | `widget(1)` | 用户类通常不写 `new` |
+| 函数 | `function f(a) { return a; }` | 无类型标注 |
+| Lambda/委托 | `var f = (x) => x + 1`、`delegate(x) => x + 1` | Lambda 可赋值、调用和捕获变量 |
+| 事件 | `event changed; changed += handler; changed(value);` | 支持 `+=` 订阅、`-=` 取消和调用触发 |
+| 列表 | `new list<int> { 1 }` | 类型名和成员使用小驼峰；也可用 `[1]` 数组字面量 |
+| 字典 | `new dictionary<string,int> { { "a", 1 } }` | 类型名和成员使用小驼峰 |
+| 构造对象 | `new widget(1)` | 用户类必须使用 `new` |
 | 继承 | `class child : parent` | 接近 C# |
 | 当前对象 | `this` | Python 的显式 `self` 参数不需要写 |
 | 模块 | 文件 `import` + 命名空间 `using` | 加载文件与导入短名分离 |

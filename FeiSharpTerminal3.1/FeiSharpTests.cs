@@ -36,6 +36,115 @@ console.log(""Hello"");
 var result = 1;",
                 new ExpectedVariable("result", 1));
         }),
+        ("Generic Class And Function Syntax Test", () => {
+            RunFeiSharpCode(@"
+class pair<t1, t2> {
+    var first = null;
+    var second = null;
+    constructor(firstValue, secondValue) {
+        this.first = firstValue;
+        this.second = secondValue;
+    }
+    public function getFirst() { return this.first; }
+}
+function identity<t>(value) { return value; }
+var item = new pair<int, string>(7, ""ok"");
+var result = identity<int>(item.getFirst());",
+                new ExpectedVariable("result", 7));
+        }),
+        ("Lambda Delegate And Event Test", () => {
+            RunFeiSharpCode(@"
+var offset = 3;
+var add = x => x + offset;
+var sum = (x, y) => x + y;
+var explicitDelegate = delegate(value) => value * 2;
+var r1 = add(4);
+var r2 = sum(2, 5);
+var r3 = explicitDelegate(6);
+var parenthesized = (a) => a + 1;
+var block = (a) => { return a + 2; };
+var r5 = parenthesized.invoke(4);
+var r6 = block(4);
+event changed;
+changed += value => value + 10;
+var r4 = changed(5);
+event removable;
+var handler = (value) => value + 20;
+removable += handler;
+var r7 = removable.invoke(1);
+removable -= handler;
+var r8 = removable(1);",
+                new ExpectedVariable("r1", 7),
+                new ExpectedVariable("r2", 7),
+                new ExpectedVariable("r3", 12),
+                new ExpectedVariable("r5", 5),
+                new ExpectedVariable("r6", 6),
+                new ExpectedVariable("r4", 15),
+                new ExpectedVariable("r7", 21),
+                new ExpectedVariable("r8", null));
+        }),
+        ("Single Line Control Body Test", () => {
+            RunFeiSharpCode(@"
+var number = 0;
+while (number < 3) number += 1;
+for (var index = 0; index < 3; index += 1) number += index;
+foreach (var item in [1, 2]) number += item;
+if (number == 11) number = 12; else number = 0;
+var result = number;",
+                new ExpectedVariable("result", 12));
+        }),
+        ("Recursive Function With Single Line Return Test", () => {
+            RunFeiSharpCode(@"
+function factorial(value) {
+    if (value = 1) return 1;
+    return value * factorial(value - 1);
+}
+var result = factorial(4);",
+                new ExpectedVariable("result", 24));
+        }),
+        ("Import Class Alias Test", () => {
+            RunFeiSharpCode(@"
+namespace Demo.Models {
+    class Counter {
+        var value = 0;
+        constructor(seed) { value = seed; }
+        public function getValue() { return value; }
+    }
+}
+import Demo.Models.Counter as Tally;
+var counter = new Tally(42);
+var result = counter.getValue();",
+                new ExpectedVariable("result", 42));
+        }),
+        ("Import Alias Instance Method And Static Field Test", () => {
+            RunFeiSharpCode(@"
+namespace Data {
+    class dataSource {
+        private static var data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        public function getDataS(index, password) {
+            if (password == ""feifeigan1234567890"") {
+                return data[index];
+            }
+        }
+    }
+}
+import Data.dataSource as d;
+var result = d.getDataS(1, ""feifeigan1234567890"");",
+                new ExpectedVariable("result", 2));
+        }),
+        ("Import Alias Does Not Transform To Cast Test", () => {
+            const string source = "import Demo.Models.Counter as Tally;";
+            if (CodeTransformer.Transform(source) != source)
+                throw new AssertionException("Import aliases must not be transformed into cast expressions");
+        }),
+        ("As Cast Requires A Type Name Test", () => {
+            if (CodeTransformer.Transform("print(\"1\" as a + 2);") != "print(\"1\" as a + 2);")
+                throw new AssertionException("Only supported type names may follow 'as'");
+            if (CodeTransformer.Transform("var value = \"1\" as integer;") != "var value = cast(\"1\", \"number\");")
+                throw new AssertionException("The as cast syntax must normalize integer to the runtime number type");
+            if (CodeTransformer.Transform("var value = cast(\"1\", integer);") != "var value = cast(\"1\", \"number\");")
+                throw new AssertionException("cast must accept an unquoted type name");
+        }),
         ("Character Literal Lexing Test", () => {
             AssertTokenSequence("'a'", new[]
             {
@@ -53,8 +162,9 @@ var result = 1;",
             });
         }),
         ("Combined Operator Lexing Test", () => {
-            AssertTokenSequence("!= && || <= >=", new[]
+            AssertTokenSequence("== != && || <= >=", new[]
             {
+                new Token(TokenTypes.Operator, "=="),
                 new Token(TokenTypes.Operator, "!="),
                 new Token(TokenTypes.Operator, "&&"),
                 new Token(TokenTypes.Operator, "||"),
@@ -132,7 +242,7 @@ class childCounter : baseCounter {
         return value;
     }
 }
-var a = childCounter(5);
+var a = new childCounter(5);
 var result = a.getValue();",
                 new ExpectedVariable("result", 7));
         }),
@@ -148,7 +258,7 @@ class counterType {
         return this.value;
     }
 }
-var counter = counterType();
+var counter = new counterType();
 var result = counter.add(4);
 var result2 = counter.read();",
                 new ExpectedVariable("result", 5),
@@ -166,7 +276,7 @@ class childType : baseType {
         return base.seed() + 4;
     }
 }
-var child = childType();
+var child = new childType();
 var result = child.calc();",
                 new ExpectedVariable("result", 7));
         }),
@@ -182,7 +292,7 @@ class protectedChild : protectedBase {
         return base.seed() + 4;
     }
 }
-var child = protectedChild();
+var child = new protectedChild();
 var result = child.calc();",
                 new ExpectedVariable("result", 7));
         }),
@@ -196,7 +306,7 @@ class demoType {
         return this.secret();
     }
 }
-var demo = demoType();
+var demo = new demoType();
 var ok = demo.expose();
 try {
     var bad = demo.secret();
@@ -296,7 +406,7 @@ class demoType {
         return this.shield;
     }
 }
-var demo = demoType();
+var demo = new demoType();
 var a = demo.open;
 var b = demoType.shared;
 var c = demo.exposeSecret();
@@ -344,7 +454,7 @@ class configType {
         return this.secret;
     }
 }
-var config = configType();
+var config = new configType();
 var exposedLimit = config.limit;
 var exposedSecret = config.reveal();
 try {
@@ -382,11 +492,11 @@ class assignmentConfig {
     static var defaultValue = 2;
 }
 assignmentConfig.defaultValue = 7;
-var item = assignmentChild(0);
+var item = new assignmentChild(0);
 var r1 = item.assign(5);
 var r2 = item.setSeed(9);
 item.value = 11;
-item = assignmentChild(3);
+item = new assignmentChild(3);
 var r3 = item.value;
 var r4 = assignmentConfig.defaultValue;",
                 new ExpectedVariable("r1", 5),
@@ -400,11 +510,29 @@ var text = ""Hello"";
 var c1 = text[1];
 var len = text.Length;
 var part = text.Substring(1, 3);
-var idx = text.IndexOf(""ll"");",
+var idx = text.IndexOf(""ll"");
+var chained = ""123"".replace('1', '2').replace(""22"", ""33"");
+var chainedLength = ""123"".replace('1', '2').Length;
+var upper = ""  FeiSharp  "".trim().toUpper();
+var contains = ""FeiSharp"".contains(""Sharp"");
+var prefix = ""FeiSharp"".startsWith(""Fei"");
+var suffix = ""FeiSharp"".endsWith(""Sharp"");
+var character = ""FeiSharp"".charAt(3);
+var reversed = ""abc"".reverse();
+var repeated = ""ab"".repeat(3);",
                 new ExpectedVariable("c1", 'e'),
                 new ExpectedVariable("len", 5),
                 new ExpectedVariable("part", "ell"),
-                new ExpectedVariable("idx", 2));
+                new ExpectedVariable("idx", 2),
+                new ExpectedVariable("chained", "333"),
+                new ExpectedVariable("chainedLength", 3),
+                new ExpectedVariable("upper", "FEISHARP"),
+                new ExpectedVariable("contains", true),
+                new ExpectedVariable("prefix", true),
+                new ExpectedVariable("suffix", true),
+                new ExpectedVariable("character", 'S'),
+                new ExpectedVariable("reversed", "cba"),
+                new ExpectedVariable("repeated", "ababab"));
         }),
         ("Backslash String Literal Print Test", () => {
             RunFeiSharpCode(@"
@@ -416,24 +544,75 @@ var ok = 1;",
             RunFeiSharpCode(@"
 var arr = [1, 2, 3];
 var typedArr = new int[] { 4, 5, 6 };
-var list = new List<int> { 10, 20 };
-list.Add(30);
+var list = new list<int> { 10, 20 };
+list.add(30);
 list[1] = 25;
-var dict = new Dictionary<string, int> { { ""a"", 1 }, { ""b"", 2 } };
-dict.Add(""c"", 3);
+var dict = new dictionary<string, int> { { ""a"", 1 }, { ""b"", 2 } };
+dict.add(""c"", 3);
 dict[""b""] = 20;
 var r1 = arr[1];
 var r2 = typedArr[2];
 var r3 = list[1];
-var r4 = list.Count;
+var r4 = list.count;
 var r5 = dict[""b""];
-var r6 = dict.Count;",
+var r6 = dict.count;
+var r7 = dict.containsKey(""c"");",
                 new ExpectedVariable("r1", 2),
                 new ExpectedVariable("r2", 6),
                 new ExpectedVariable("r3", 25),
                 new ExpectedVariable("r4", 3),
                 new ExpectedVariable("r5", 20),
-                new ExpectedVariable("r6", 3));
+                new ExpectedVariable("r6", 3),
+                new ExpectedVariable("r7", true));
+        }),
+        ("Runtime List Mutation Test", () => {
+            RunFeiSharpCode(@"
+var values = new list<int> { 1, 3 };
+values.insert(1, 2);
+values.add(4);
+values.removeAt(0);
+var first = values[0];
+var count = values.count;",
+                new ExpectedVariable("first", 2),
+                new ExpectedVariable("count", 3));
+        }),
+        ("Universal Value Member Syntax Test", () => {
+            RunFeiSharpCode(@"
+function addOne(value) { return value + 1; }
+var functionIdentifier = addOne.getFunctionIdentifier();
+var functionIsClass = addOne.isClass();
+var functionIsFunction = addOne.isFunction();
+class MetaType {
+    public static var b = 100;
+}
+var classIdentifier = MetaType.getClassIdentifier();
+var classIsClass = MetaType.isClass();
+var classHasB = MetaType.getAllMembers().contains(""b"");
+var numberIsClass = 1.isClass();
+var numberHasToString = 1.getAllMembers().contains(""ToString"");
+var integerValue = new int[] { 1 };
+var integerIsClass = integerValue[0].isClass();
+var booleanIsClass = true.isClass();
+var booleanHasToString = true.getAllMembers().contains(""ToString"");
+var characterIsClass = 'x'.isClass();
+var stringIsClass = ""value"".isClass();
+var stringHasLength = ""value"".getAllMembers().contains(""Length"");
+var stringUpper = ""value"".toUpper();",
+                new ExpectedVariable("functionIdentifier", "addOne"),
+                new ExpectedVariable("functionIsClass", false),
+                new ExpectedVariable("functionIsFunction", true),
+                new ExpectedVariable("classIdentifier", "MetaType"),
+                new ExpectedVariable("classIsClass", true),
+                new ExpectedVariable("classHasB", true),
+                new ExpectedVariable("numberIsClass", false),
+                new ExpectedVariable("numberHasToString", true),
+                new ExpectedVariable("integerIsClass", false),
+                new ExpectedVariable("booleanIsClass", false),
+                new ExpectedVariable("booleanHasToString", true),
+                new ExpectedVariable("characterIsClass", false),
+                new ExpectedVariable("stringIsClass", false),
+                new ExpectedVariable("stringHasLength", true),
+                new ExpectedVariable("stringUpper", "VALUE"));
         }),
         ("Standard API Functions And Math Class Test", () => {
             RunFeiSharpCode(@"
@@ -484,14 +663,14 @@ class sampleCounter {
         return 7;
     }
 }
-var counter = sampleCounter();
+var counter = new sampleCounter();
 var result = counter.getValue();
 var upperMath = Math.ABS(-1);
 var upperGlobal = TYPEOF(upperMath);
 class SampleType {
     public function GetValue() { return 8; }
 }
-var mixedCase = SampleType();
+var mixedCase = new SampleType();
 var mixedResult = mixedCase.getvalue();",
                 new ExpectedVariable("result", 7),
                 new ExpectedVariable("upperMath", 1),
@@ -518,6 +697,7 @@ var answer = js.eval(""1 + 2"");",
             AssertFeiSharpErrorCode("using FeiSharp.IO; var value = file.readText(\"__missing_feisharp_file__\");", "FS5001");
             AssertFeiSharpErrorCode("using FeiSharp.Net; var value = http.get(\"not-a-url\");", "FS5002");
         }),
+        ("Sibling Namespace Sharing Test", TestSiblingNamespaceSharing),
         ("While Array Index And Stop Condition Test", () => {
             RunFeiSharpCode(@"
 var arr = [1, 2, 3];
@@ -838,6 +1018,47 @@ for(var a = 0; a < 100; a = a + 1) {
                     $"  Expected: {expected.Type} '{expected.Value}'\n" +
                     $"  Actual: {actual.Type} '{actual.Value}'");
             }
+        }
+    }
+
+    static void TestSiblingNamespaceSharing()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"FeiSharpNamespaceTests_{Guid.NewGuid():N}");
+        string previousApplicationPath = FeiSharp8._5RuntimeSdk.Program._applicationPath;
+        Directory.CreateDirectory(root);
+        try
+        {
+            string libraryPath = Path.Combine(root, "b.fsc");
+            string entryPath = Path.Combine(root, "c.fsc");
+            File.WriteAllText(libraryPath, "namespace A.B; function twice(value) { return value * 2; }");
+            File.WriteAllText(Path.Combine(root, "ordinary.fsc"), "var shouldNotLoad = 1;");
+            string entrySource = "import A.B; var shortResult = twice(21); var qualifiedResult = A.B.twice(3);";
+            File.WriteAllText(entryPath, entrySource);
+
+            FeiSharp8._5RuntimeSdk.Program._applicationPath = entryPath;
+            string processedSource = FeiSharp8._5RuntimeSdk.Program.ProProcesser(entrySource);
+            Lexer lexer = new(processedSource);
+            List<Token> tokens = [];
+            Token token;
+            do
+            {
+                token = lexer.NextToken();
+                tokens.Add(token);
+            } while (token.Type != TokenTypes.EndOfFile);
+
+            Parser parser = new(tokens);
+            parser.ParseStatements();
+            AssertVariableValue(parser, "shortResult", 42);
+            AssertVariableValue(parser, "qualifiedResult", 6);
+            if (parser._variables.ContainsKey("shouldNotLoad"))
+            {
+                throw new AssertionException("A sibling file without a namespace was loaded automatically");
+            }
+        }
+        finally
+        {
+            FeiSharp8._5RuntimeSdk.Program._applicationPath = previousApplicationPath;
+            Directory.Delete(root, true);
         }
     }
 

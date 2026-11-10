@@ -1,0 +1,258 @@
+class tetromino {
+    private var kind = 0;
+    private var rotation = 0;
+    private var x = 3;
+    private var y = 0;
+
+    constructor(pieceKind) {
+        this.kind = pieceKind;
+        this.rotation = 0;
+        this.x = 3;
+        this.y = 0;
+    }
+    public function getKind() { return this.kind; }
+    public function getRotation() { return this.rotation; }
+    public function getX() { return this.x; }
+    public function getY() { return this.y; }
+    public function moveTo(nextX, nextY) { this.x = nextX; this.y = nextY; }
+    public function rotateTo(nextRotation) { this.rotation = nextRotation; }
+}
+
+class gameStats {
+    private var scoreValue = 0;
+    private var lineCount = 0;
+    private var pieceCount = 0;
+
+    public function locked() { this.pieceCount = this.pieceCount + 1; }
+    public function cleared(count) {
+        this.lineCount = this.lineCount + count;
+        if (count = 1) { this.scoreValue = this.scoreValue + 100; }
+        if (count = 2) { this.scoreValue = this.scoreValue + 300; }
+        if (count = 3) { this.scoreValue = this.scoreValue + 500; }
+        if (count >= 4) { this.scoreValue = this.scoreValue + 800; }
+    }
+    public function score() { return this.scoreValue; }
+    public function lines() { return this.lineCount; }
+    public function pieces() { return this.pieceCount; }
+    public function level() { return 1 + math.floor(this.lineCount / 10); }
+}
+
+function baseOccupied(kind, x, y) {
+    var filled = false;
+    if (kind = 0 && y = 1 && x >= 0 && x <= 3) { filled = true; }
+    if (kind = 1 && x >= 1 && x <= 2 && y >= 0 && y <= 1) { filled = true; }
+    if (kind = 2 && ((x = 1 && y = 0) || (y = 1 && x >= 0 && x <= 2))) { filled = true; }
+    if (kind = 3 && ((y = 0 && x >= 1 && x <= 2) || (y = 1 && x >= 0 && x <= 1))) { filled = true; }
+    if (kind = 4 && ((y = 0 && x >= 0 && x <= 1) || (y = 1 && x >= 1 && x <= 2))) { filled = true; }
+    if (kind = 5 && ((x = 0 && y = 0) || (y = 1 && x >= 0 && x <= 2))) { filled = true; }
+    if (kind = 6 && ((x = 2 && y = 0) || (y = 1 && x >= 0 && x <= 2))) { filled = true; }
+    return filled;
+}
+
+function pieceOccupied(kind, rotation, x, y) {
+    var sourceX = x;
+    var sourceY = y;
+    if (kind != 1) {
+        if (rotation = 1) { sourceX = y; sourceY = 3 - x; }
+        if (rotation = 2) { sourceX = 3 - x; sourceY = 3 - y; }
+        if (rotation = 3) { sourceX = 3 - y; sourceY = x; }
+    }
+    return baseOccupied(kind, sourceX, sourceY);
+}
+
+function canPlace(board, width, height, piece, nextX, nextY, nextRotation) {
+    var allowed = true;
+    for (var localY = 0; localY < 4; localY = localY + 1) {
+        for (var localX = 0; localX < 4; localX = localX + 1) {
+            if (pieceOccupied(piece.getKind(), nextRotation, localX, localY)) {
+                var boardX = nextX + localX;
+                var boardY = nextY + localY;
+                if (boardX < 0 || boardX >= width || boardY >= height) { allowed = false; }
+                else {
+                    if (boardY >= 0) {
+                        if (board[boardY * width + boardX] != 0) { allowed = false; }
+                    }
+                }
+            }
+        }
+    }
+    return allowed;
+}
+
+function lockPiece(board, width, piece) {
+    for (var localY = 0; localY < 4; localY = localY + 1) {
+        for (var localX = 0; localX < 4; localX = localX + 1) {
+            if (pieceOccupied(piece.getKind(), piece.getRotation(), localX, localY)) {
+                var boardX = piece.getX() + localX;
+                var boardY = piece.getY() + localY;
+                if (boardY >= 0) { board[boardY * width + boardX] = piece.getKind() + 1; }
+            }
+        }
+    }
+}
+
+function clearCompletedLines(board, width, height) {
+    var cleared = 0;
+    for (var y = height - 1; y >= 0; y = y - 1) {
+        var full = true;
+        for (var x = 0; x < width; x = x + 1) {
+            if (board[y * width + x] = 0) { full = false; }
+        }
+        if (full) {
+            cleared = cleared + 1;
+            for (var moveY = y; moveY > 0; moveY = moveY - 1) {
+                for (var moveX = 0; moveX < width; moveX = moveX + 1) {
+                    board[moveY * width + moveX] = board[(moveY - 1) * width + moveX];
+                }
+            }
+            for (var topX = 0; topX < width; topX = topX + 1) { board[topX] = 0; }
+            y = y + 1;
+        }
+    }
+    return cleared;
+}
+
+function pieceName(kind) {
+    var name = "I";
+    if (kind = 1) { name = "O"; }
+    if (kind = 2) { name = "T"; }
+    if (kind = 3) { name = "S"; }
+    if (kind = 4) { name = "Z"; }
+    if (kind = 5) { name = "J"; }
+    if (kind = 6) { name = "L"; }
+    return name;
+}
+
+function pieceColor(kind, esc) {
+    var color = esc + "38;2;65;220;255m";
+    if (kind = 1) { color = esc + "38;2;255;220;70m"; }
+    if (kind = 2) { color = esc + "38;2;190;100;255m"; }
+    if (kind = 3) { color = esc + "38;2;80;240;130m"; }
+    if (kind = 4) { color = esc + "38;2;255;80;100m"; }
+    if (kind = 5) { color = esc + "38;2;80;130;255m"; }
+    if (kind = 6) { color = esc + "38;2;255;155;60m"; }
+    return color;
+}
+
+function render(board, width, height, piece, nextKind, stats) {
+    var esc = "$(unicode:001B)[";
+    var reset = esc + "0m";
+    var border = esc + "38;2;65;100;125m";
+    var title = esc + "38;2;80;235;255m";
+    var text = esc + "38;2;225;245;255m";
+    var muted = esc + "38;2;105;135;150m";
+    var activeColor = pieceColor(piece.getKind(), esc);
+    var screen = esc + "2J" + esc + "H";
+    screen = screen + title + "  ╔════════════════════════════════╗\n";
+    screen = screen + "  ║      F E I S H A R P  方块     ║\n";
+    screen = screen + "  ╚════════════════════════════════╝" + reset + "\n";
+    screen = screen + text + "  SCORE " + stats.score() + "   LINES " + stats.lines() + "   LEVEL " + stats.level() + reset + "\n";
+    screen = screen + muted + "  NEXT " + pieceName(nextKind) + "   PIECES " + stats.pieces() + reset + "\n\n";
+    screen = screen + border + "  ┌────────────────────┐" + reset + "\n";
+    for (var y = 0; y < height; y = y + 1) {
+        screen = screen + border + "  │" + reset;
+        for (var x = 0; x < width; x = x + 1) {
+            var active = false;
+            var localX = x - piece.getX();
+            var localY = y - piece.getY();
+            if (localX >= 0 && localX < 4 && localY >= 0 && localY < 4) {
+                active = pieceOccupied(piece.getKind(), piece.getRotation(), localX, localY);
+            }
+            var cell = board[y * width + x];
+            if (active) { screen = screen + activeColor + "██"; }
+            else if (cell > 0) { screen = screen + pieceColor(cell - 1, esc) + "██"; }
+            else { screen = screen + muted + "· "; }
+        }
+        screen = screen + border + "│" + reset + "\n";
+    }
+    screen = screen + border + "  └────────────────────┘" + reset + "\n";
+    screen = screen + title + "  [A/D] 移动  [W] 旋转  [S] 下落\n";
+    screen = screen + title + "  [Space] 硬降  [Q] 退出" + reset + "\n";
+    print(screen);
+}
+
+function main() {
+    var width = 10;
+    var height = 20;
+    var board = new List<int> { };
+    for (var i = 0; i < width * height; i = i + 1) { board.Add(0); }
+
+    rand("currentKind", 0, 7);
+    rand("nextKind", 0, 7);
+    var piece = tetromino(currentKind);
+    var stats = gameStats();
+    var alive = true;
+    var quit = false;
+    var key = "";
+    var waitMilliseconds = 0;
+
+    while (alive && !quit) {
+        render(board, width, height, piece, nextKind, stats);
+        waitMilliseconds = 0;
+        while (!console.keyAvailable() && waitMilliseconds < 500) {
+            console.sleep(50);
+            waitMilliseconds = waitMilliseconds + 50;
+        }
+        if (console.keyAvailable()) { key = console.readKey().ToLower(); }
+        else { key = ""; }
+        var lockNow = false;
+
+        if (key = "q") { quit = true; }
+        else {
+            if (key = "a" && canPlace(board, width, height, piece, piece.getX() - 1, piece.getY(), piece.getRotation())) {
+                piece.moveTo(piece.getX() - 1, piece.getY());
+            }
+            if (key = "d" && canPlace(board, width, height, piece, piece.getX() + 1, piece.getY(), piece.getRotation())) {
+                piece.moveTo(piece.getX() + 1, piece.getY());
+            }
+            if (key = "w") {
+                var nextRotation = piece.getRotation() + 1;
+                if (nextRotation >= 4) { nextRotation = 0; }
+                if (canPlace(board, width, height, piece, piece.getX(), piece.getY(), nextRotation)) {
+                    piece.rotateTo(nextRotation);
+                }
+            }
+            if (key = " ") {
+                while (canPlace(board, width, height, piece, piece.getX(), piece.getY() + 1, piece.getRotation())) {
+                    piece.moveTo(piece.getX(), piece.getY() + 1);
+                }
+                lockNow = true;
+            }
+            if (key = "s" && !lockNow) {
+                if (canPlace(board, width, height, piece, piece.getX(), piece.getY() + 1, piece.getRotation())) {
+                    piece.moveTo(piece.getX(), piece.getY() + 1);
+                } else { lockNow = true; }
+            }
+            else if (!lockNow) {
+                if (canPlace(board, width, height, piece, piece.getX(), piece.getY() + 1, piece.getRotation())) {
+                    piece.moveTo(piece.getX(), piece.getY() + 1);
+                } else { lockNow = true; }
+            }
+
+            if (lockNow) {
+                lockPiece(board, width, piece);
+                stats.locked();
+                var cleared = clearCompletedLines(board, width, height);
+                if (cleared > 0) { stats.cleared(cleared); }
+                currentKind = nextKind;
+                rand("nextKind", 0, 7);
+                piece = tetromino(currentKind);
+                if (!canPlace(board, width, height, piece, piece.getX(), piece.getY(), piece.getRotation())) {
+                    alive = false;
+                }
+            }
+        }
+    }
+
+    var esc = "$(unicode:001B)[";
+    if (quit) {
+        print(esc + "2J" + esc + "H" + esc + "38;2;100;190;210m  游戏已退出。最终得分：" + stats.score() + esc + "0m\n");
+    } else {
+        render(board, width, height, piece, nextKind, stats);
+        printNl(esc + "38;2;255;80;100m\n  ╔════════ GAME OVER ════════╗");
+        printNl("  ║ 得分 " + stats.score() + "，消除 " + stats.lines() + " 行");
+        printNl("  ╚═══════════════════════════╝" + esc + "0m");
+        printNl("  按任意键结束……");
+        readKey("_");
+    }
+}

@@ -1,5 +1,4 @@
-﻿using FeiSharp8._5RuntimeSdk;
-using FeiSharpStudio.ClassInstance;
+﻿using FeiSharpStudio.ClassInstance;
 using FeiSharpStudio.UUID;
 using FeiSharpTerminal3._1;
 using FMusicPlayer;
@@ -8,14 +7,21 @@ using System.Collections;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
-using System.Runtime.Loader;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using static FeiSharpStudio.Parser;
 using Exception = FeiSharpTerminal3._1.ExceptionThrow.Exception;
+using Program = FeiSharp8._5RuntimeSdk.Program;
 namespace FeiSharpStudio
 {
+    public static class StringFunctionFeiSharp
+    {
+        public static string Hash(this string d)
+        {
+            return Convert.ToHexString(SHA3_512.HashData(Encoding.UTF8.GetBytes(d))); ;
+        }
+    }
     public class ScriptTitleExtractor
     {
         public static string ExtractEscapedTitleFromScript(string htmlContent)
@@ -73,6 +79,49 @@ namespace FeiSharpStudio
             public object? TargetObject { get; init; }
             public object? IndexKey { get; init; }
         }
+        private sealed class FeiSharpEvent
+        {
+            private readonly List<object> _handlers = [];
+
+            public void Subscribe(object handler)
+            {
+                if (!IsCallable(handler))
+                    throw new InvalidOperationException("Event handlers must be functions, lambdas, or delegates.");
+                _handlers.Add(handler);
+            }
+
+            public void Unsubscribe(object handler)
+            {
+                _handlers.Remove(handler);
+            }
+
+            public object? Raise(IReadOnlyList<object> args, Parser parser)
+            {
+                object? result = null;
+                foreach (object handler in _handlers.ToArray())
+                {
+                    result = parser.InvokeCallable(handler, args);
+                }
+                return result;
+            }
+
+            private static bool IsCallable(object value) => value is FeiSharpLambda or Delegate or FeiSharpEvent;
+        }
+        private sealed class FeiSharpLambda
+        {
+            private readonly Parser _owner;
+            private readonly LambdaExpr _definition;
+            private readonly Dictionary<string, object> _capturedVariables;
+
+            public FeiSharpLambda(Parser owner, LambdaExpr definition)
+            {
+                _owner = owner;
+                _definition = definition;
+                _capturedVariables = new(owner._variables, StringComparer.OrdinalIgnoreCase);
+            }
+
+            public object? Invoke(IReadOnlyList<object> args) => _owner.EvaluateLambda(_definition, _capturedVariables, args);
+        }
         private List<Token> _tokens;
         private int _current;
         private bool _propagateFeiSharpExceptions;
@@ -81,6 +130,10 @@ namespace FeiSharpStudio
         private string? _currentExecutionClassName;
         private string? _currentFunctionName;
         private string? _currentNamespace;
+        // Lambda parameters are only available when the lambda is invoked.  Keep
+        // their names while parsing the body so they become VarExpr nodes instead
+        // of being resolved as ordinary globals during lambda creation.
+        private HashSet<string>? _lambdaParametersBeingParsed;
         private HashSet<string> _usingNamespaces = new(StringComparer.OrdinalIgnoreCase);
         private object? _lastItValue;
         private Dictionary<string, VariableInfo> _variableInfos = new(StringComparer.OrdinalIgnoreCase);
@@ -118,6 +171,8 @@ namespace FeiSharpStudio
 ];
         public Parser(List<Token> tokens)
         {
+            StandardLibrary.UiFunctionInvoker = InvokeUiFunction;
+            StandardLibrary.UiMethodInvoker = InvokeUiMethod;
             _tokens = tokens;
             _current = 0;
             _variables.NewAdd("true", true);
@@ -135,6 +190,21 @@ namespace FeiSharpStudio
             _variables.NewAdd("e", Math.E);
             _variables.NewAdd("tau", Math.Tau);
             _variables.NewAdd("_", new FeiSharpSpecialValue("Dircards"));
+        }
+
+        private object? InvokeUiFunction(string name, IReadOnlyList<object?> args)
+        {
+            if (!TryResolveFunctionName(name, out var resolvedName, out var function))
+                throw new InvalidOperationException($"Undefined FeiSharp UI event function: {name}.");
+            RunFunction(resolvedName, function, null, args.Select(value => value ?? new object()).ToList());
+            return GetFunctionReturnValueOrDefault(resolvedName);
+        }
+
+        private object? InvokeUiMethod(object target, string methodName, IReadOnlyList<object?> args)
+        {
+            if (target is not ClassInstance instance)
+                throw new InvalidOperationException("UI method handlers must be FeiSharp class instances.");
+            return instance.CallMethod(methodName, args.Select(value => value ?? new object()).ToList(), this);
         }
         protected virtual void OnOutputEvent(OutputEventArgs e)
         {
@@ -159,6 +229,7 @@ namespace FeiSharpStudio
                         Advance();
                         continue;
                     }
+                    DebugProtocol.BeforeStatement(this, Peek(), funcName);
                     statementCount++;
                     if (statementCount % CancelCheckInterval == 0)
                     {
@@ -171,6 +242,10 @@ namespace FeiSharpStudio
                     else if (MatchKeyword(TokenKeywords._const))
                     {
                         ParseVariableDeclaration(isConst: true);
+                    }
+                    else if (MatchKeyword(TokenKeywords._event))
+                    {
+                        ParseEventDeclaration();
                     }
                     else if (TryParseExtensionKeywordStatement())
                     {
@@ -545,10 +620,28 @@ namespace FeiSharpStudio
                 {
                     throw;
                 }
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine(e.stringBuilder.ToString());
-                Console.ResetColor();
+                e.PrintPanel();
                 return;
+            }
+        }
+        internal object? EvaluateDebuggerExpression(string source)
+        {
+            var debugTokens = new List<Token>();
+            var lexer = new Lexer(source);
+            Token token;
+            do { token = lexer.NextToken(); debugTokens.Add(token); } while (token.Type != TokenTypes.EndOfFile);
+            List<Token> savedTokens = _tokens;
+            int savedCurrent = _current;
+            try
+            {
+                _tokens = debugTokens;
+                _current = 0;
+                return EvaluateExpression(ParseExpression());
+            }
+            finally
+            {
+                _tokens = savedTokens;
+                _current = savedCurrent;
             }
         }
         private bool TryParseExtensionKeywordStatement()
@@ -1931,9 +2024,44 @@ namespace FeiSharpStudio
 
         private void ParseImportStatement()
         {
-            string namespaceName = ParseQualifiedName("Expected namespace name after 'import'");
-            _usingNamespaces.Add(namespaceName);
-            EnableBuiltInNamespace(namespaceName);
+            string qualifiedName = ParseQualifiedName("Expected namespace name after 'import'");
+            if (MatchKeyword(TokenKeywords._as))
+            {
+                if (!MatchToken(TokenTypes.Identifier, out string alias))
+                {
+                    throw new Exception(_tokens, _current, "Expected class alias after 'as'", "FS2003");
+                }
+
+                // Classes currently remain unqualified internally (see
+                // NAMESPACES.md). Prefer a fully qualified class when one is
+                // available, then resolve the last segment for classes from a
+                // named namespace.
+                string className = qualifiedName.Contains('.')
+                    ? qualifiedName[(qualifiedName.LastIndexOf('.') + 1)..]
+                    : qualifiedName;
+                if (!_classInfos.TryGetValue(qualifiedName, out ClassInfo? classInfo)
+                    && !_classInfos.TryGetValue(className, out classInfo))
+                {
+                    throw new Exception(_tokens, _current,
+                        $"Cannot import class '{qualifiedName}': the class has not been declared.",
+                        FeiSharpErrorCodes.UndefinedSymbol);
+                }
+                _classInfos[alias] = classInfo;
+                // Import aliases are module-like names: make an instance
+                // available immediately so `import A.B as b; b.method()` can
+                // invoke public instance methods without an extra `b()`.
+                // Classes that require constructor parameters retain their
+                // class alias and must be instantiated explicitly.
+                if (classInfo.ConstructorInfo == null || classInfo.ConstructorInfo.Parameter.Count == 0)
+                {
+                    _variables[alias] = CreateClassInstance(alias, classInfo, []);
+                }
+            }
+            else
+            {
+                _usingNamespaces.Add(qualifiedName);
+                EnableBuiltInNamespace(qualifiedName);
+            }
             ConsumeOptionalSemicolon();
         }
         private void ParseReadStatement()
@@ -1986,7 +2114,18 @@ namespace FeiSharpStudio
             }
             catch
             {
-                throw new Exception(_tokens, _current, "Variable, function or class not defined: " + name, FeiSharpErrorCodes.UndefinedSymbol);
+                int errorTokenIndex = Math.Clamp(_current - 1, 0, _tokens.Count - 1);
+                for (int index = errorTokenIndex; index >= 0; index--)
+                {
+                    if (string.Equals(_tokens[index].Value, name, StringComparison.Ordinal))
+                    {
+                        errorTokenIndex = index;
+                        break;
+                    }
+                }
+                throw new Exception(_tokens, errorTokenIndex,
+                    "Variable, function or class not defined: " + name,
+                    FeiSharpErrorCodes.UndefinedSymbol);
             }
             string funcorvarname = "";
             bool isFunc = default;
@@ -2131,6 +2270,7 @@ namespace FeiSharpStudio
         {
             string className = Peek().Value;
             Advance();
+            ParseGenericParameterDeclaration();
             string? baseClassName = null;
             if (MatchPunctuation(":"))
             {
@@ -2296,6 +2436,7 @@ namespace FeiSharpStudio
             }
             _results[funcName] = EvaluateExpression(ParseExpression());
             _variables[$"{funcName}:return"] = _results[funcName];
+            if (isRun) throw new ReturnStatementExitException();
         }
         private object? GetFunctionReturnValueOrDefault(string funcName)
         {
@@ -2483,19 +2624,7 @@ namespace FeiSharpStudio
             object iterable = EvaluateExpression(ParseExpression());
             if (!MatchPunctuation(")"))
                 throw new Exception(_tokens, _current, "Expected ')' after foreach header", "FS2003");
-            if (!MatchPunctuation("{"))
-                throw new Exception(_tokens, _current, "Expected '{' to start foreach body", "FS2003");
-            int bodyStartIndex = _current;
-            int braceDepth = 1;
-            while (braceDepth > 0 && !IsAtEnd())
-            {
-                Token token = Peek();
-                Advance();
-                if (token.Value == "{") braceDepth++;
-                if (token.Value == "}") braceDepth--;
-            }
-            int bodyEndIndex = _current - 1;
-            int afterBodyIndex = _current;
+            List<Token> bodyTokens = ParseControlBodyTokens("foreach");
             bool hadPrevious = _variables.ContainsKey(itemName);
             object? previousValue = hadPrevious ? _variables[itemName] : null;
             int loopCount = 0;
@@ -2508,7 +2637,7 @@ namespace FeiSharpStudio
                         CheckCancellation();
 
                     _variables[itemName] = item;
-                    ExecuteStatementsInRange(bodyStartIndex, bodyEndIndex, _currentFunctionName);
+                    ExecuteNestedBlock(bodyTokens, _currentFunctionName ?? "", _variables, _classInfos);
                     if (_isQuit)
                     {
                         Environment.Exit(_n);
@@ -2522,7 +2651,6 @@ namespace FeiSharpStudio
                 else
                     _variables.Remove(itemName);
             }
-            _current = afterBodyIndex;
         }
         private IEnumerable<object> GetIterableItems(object iterable)
         {
@@ -2568,6 +2696,10 @@ namespace FeiSharpStudio
                     else if (MatchKeyword(TokenKeywords._const))
                     {
                         ParseVariableDeclaration(isConst: true);
+                    }
+                    else if (MatchKeyword(TokenKeywords._event))
+                    {
+                        ParseEventDeclaration();
                     }
                     else if (MatchKeyword(TokenKeywords.print))
                     {
@@ -2909,19 +3041,7 @@ namespace FeiSharpStudio
         }
         private void ParseDowhileStatement()
         {
-            if (!MatchPunctuation("{"))
-                throw new Exception(_tokens, _current, "Expected '{'", "FS2003");
-
-            int bodyStartIndex = _current;
-            int braceDepth = 1;
-            while (braceDepth > 0 && !IsAtEnd())
-            {
-                Token token = Peek();
-                Advance();
-                if (token.Value == "{") braceDepth++;
-                if (token.Value == "}") braceDepth--;
-            }
-            int bodyEndIndex = _current - 1;
+            List<Token> bodyTokens = ParseControlBodyTokens("do");
 
             if (!MatchKeyword(TokenKeywords._while))
                 throw new Exception(_tokens, _current, "Expected 'while' after do block", "FS2003");
@@ -2944,7 +3064,7 @@ namespace FeiSharpStudio
                 if (loopCount % CancelCheckInterval == 0)
                     CheckCancellation();
 
-                ExecuteStatementsInRange(bodyStartIndex, bodyEndIndex, _currentFunctionName);
+                ExecuteNestedBlock(bodyTokens, _currentFunctionName ?? "", _variables, _classInfos);
 
                 _current = conditionStart;
                 conditionExpr = ParseExpression();
@@ -2973,6 +3093,7 @@ namespace FeiSharpStudio
             {
                 throw new Exception(_tokens, _current, "Expected function name", "FS2003");
             }
+            ParseGenericParameterDeclaration();
             List<string> parameters = [];
             if (!MatchPunctuation("("))
             {
@@ -3000,6 +3121,56 @@ namespace FeiSharpStudio
             functionInfo.UsingNamespaces = new HashSet<string>(_usingNamespaces, StringComparer.OrdinalIgnoreCase);
             _functions[functionName] = functionInfo;
         }
+
+        private void ParseGenericParameterDeclaration()
+        {
+            if (!MatchOperator("<"))
+            {
+                return;
+            }
+            int parameterCount = 0;
+            while (!IsAtEnd())
+            {
+                if (!MatchToken(TokenTypes.Identifier, out _))
+                {
+                    throw new Exception(_tokens, _current, "Expected generic parameter name", "FS2003");
+                }
+                parameterCount++;
+                if (MatchOperator(">"))
+                {
+                    return;
+                }
+                if (!MatchPunctuation(","))
+                {
+                    throw new Exception(_tokens, _current, "Expected ',' or '>' in generic parameter list", "FS2003");
+                }
+            }
+            throw new Exception(_tokens, _current, "Expected '>' after generic parameter list", "FS2003");
+        }
+
+        private void ParseGenericArgumentList()
+        {
+            if (!MatchOperator("<"))
+            {
+                return;
+            }
+            while (!IsAtEnd())
+            {
+                if (!MatchMemberName(out _))
+                {
+                    throw new Exception(_tokens, _current, "Expected generic argument", "FS2003");
+                }
+                if (MatchOperator(">"))
+                {
+                    return;
+                }
+                if (!MatchPunctuation(","))
+                {
+                    throw new Exception(_tokens, _current, "Expected ',' or '>' in generic argument list", "FS2003");
+                }
+            }
+            throw new Exception(_tokens, _current, "Expected '>' after generic argument list", "FS2003");
+        }
         private void ParseWhileStatement()
         {
             if (!MatchPunctuation("("))
@@ -3011,20 +3182,8 @@ namespace FeiSharpStudio
             if (!MatchPunctuation(")"))
                 throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
 
-            if (!MatchPunctuation("{"))
-                throw new Exception(_tokens, _current, "Expected '{'", "FS2003");
-
-            int bodyStartIndex = _current;
-            int braceDepth = 1;
-            while (braceDepth > 0 && !IsAtEnd())
-            {
-                Token token = Peek();
-                Advance();
-                if (token.Value == "{") braceDepth++;
-                if (token.Value == "}") braceDepth--;
-            }
-            int bodyEndIndex = _current - 1;
-            int afterBodyIndex = _current;
+            List<Token> bodyTokens = ParseControlBodyTokens("while");
+            Action? bodyAction = TryCompileSimpleAssignment(bodyTokens);
 
             int loopCount = 0;
             bool condition = bool.Parse(EvaluateExpression(conditionExpr).ToString());
@@ -3034,14 +3193,10 @@ namespace FeiSharpStudio
                 loopCount++;
                 if (loopCount % CancelCheckInterval == 0)
                     CheckCancellation();
-                ExecuteStatementsInRange(bodyStartIndex, bodyEndIndex, _currentFunctionName);
-                _current = conditionStart;
-                conditionExpr = ParseExpression();
+                if (bodyAction != null) bodyAction();
+                else ExecuteNestedBlock(bodyTokens, _currentFunctionName ?? "", _variables, _classInfos);
                 condition = bool.Parse(EvaluateExpression(conditionExpr).ToString());
-                if (!MatchPunctuation(")"))
-                    throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
             }
-            _current = afterBodyIndex;
         }
         private void ParseForStatement()
         {
@@ -3066,42 +3221,35 @@ namespace FeiSharpStudio
             if (!MatchPunctuation(")"))
                 throw new Exception(_tokens, _current, "Expected ')' after for iterator", "FS2003");
 
-            if (!MatchPunctuation("{"))
-                throw new Exception(_tokens, _current, "Expected '{'", "FS2003");
-
-            int bodyStartIndex = _current;
-            int braceDepth = 1;
-            while (braceDepth > 0 && !IsAtEnd())
-            {
-                Token token = Peek();
-                Advance();
-                if (token.Value == "{") braceDepth++;
-                if (token.Value == "}") braceDepth--;
-            }
-            int bodyEndIndex = _current - 1;
-            int afterBodyIndex = _current;
+            List<Token> bodyTokens = ParseControlBodyTokens("for");
 
             if (initializerStart < initializerEnd)
             {
                 ExecuteStatementsInRange(initializerStart, initializerEnd, _currentFunctionName);
             }
 
+            Expr? conditionExpr = ParseExpressionInRange(conditionStart, conditionEnd);
+            Action? bodyAction = TryCompileSimpleAssignment(bodyTokens);
+            Action? iteratorAction = iteratorStart < iteratorEnd
+                ? TryCompileSimpleAssignment(_tokens.GetRange(iteratorStart, iteratorEnd - iteratorStart))
+                : null;
             int loopCount = 0;
-            while (EvaluateForCondition(conditionStart, conditionEnd))
+            while (conditionExpr == null || bool.Parse(EvaluateExpression(conditionExpr).ToString()))
             {
                 loopCount++;
                 if (loopCount % CancelCheckInterval == 0)
                     CheckCancellation();
 
-                ExecuteStatementsInRange(bodyStartIndex, bodyEndIndex, _currentFunctionName);
+                if (bodyAction != null) bodyAction();
+                else ExecuteNestedBlock(bodyTokens, _currentFunctionName ?? "", _variables, _classInfos);
 
                 if (iteratorStart < iteratorEnd)
                 {
-                    ExecuteStatementsInRange(iteratorStart, iteratorEnd, _currentFunctionName);
+                    if (iteratorAction != null) iteratorAction();
+                    else ExecuteStatementsInRange(iteratorStart, iteratorEnd, _currentFunctionName);
                 }
             }
 
-            _current = afterBodyIndex;
         }
         private int FindClauseBoundary(string closingToken)
         {
@@ -3156,19 +3304,18 @@ namespace FeiSharpStudio
 
             throw new Exception(_tokens, _current, $"Expected '{closingToken}'", "FS2003");
         }
-        private bool EvaluateForCondition(int startPos, int endPos)
+        private Expr? ParseExpressionInRange(int startPos, int endPos)
         {
             if (startPos >= endPos)
             {
-                return true;
+                return null;
             }
 
             int savedPosition = _current;
             try
             {
                 _current = startPos;
-                Expr conditionExpr = ParseExpression();
-                return bool.Parse(EvaluateExpression(conditionExpr).ToString());
+                return ParseExpression();
             }
             finally
             {
@@ -3181,11 +3328,11 @@ namespace FeiSharpStudio
             string b = EvaluateExpression(ParseExpression()).ToString();
             bool a = bool.Parse(b);
             if (!MatchPunctuation(")")) throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
-            List<Token> ifTokens = ParseScopedTokens("{", "}", "if", "ibegin", "iend");
+            List<Token> ifTokens = ParseControlBodyTokens("if");
             bool branchExecuted = false;
             if (a)
             {
-                _variables = Run(ifTokens, _variables, _currentFunctionName ?? "", CloneClassInfos(_classInfos));
+                _variables = Run(ifTokens, _variables, _currentFunctionName ?? "", CloneClassInfos(_classInfos), true);
                 branchExecuted = true;
             }
 
@@ -3197,19 +3344,19 @@ namespace FeiSharpStudio
                     string elseIfResult = EvaluateExpression(ParseExpression()).ToString();
                     bool elseIfCondition = bool.Parse(elseIfResult);
                     if (!MatchPunctuation(")")) throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
-                    List<Token> elseIfTokens = ParseScopedTokens("{", "}", "else if", "ibegin", "iend");
+                    List<Token> elseIfTokens = ParseControlBodyTokens("else if");
                     if (!branchExecuted && elseIfCondition)
                     {
-                        _variables = Run(elseIfTokens, _variables, _currentFunctionName ?? "", CloneClassInfos(_classInfos));
+                        _variables = Run(elseIfTokens, _variables, _currentFunctionName ?? "", CloneClassInfos(_classInfos), true);
                         branchExecuted = true;
                     }
                     continue;
                 }
 
-                List<Token> elseTokens = ParseScopedTokens("{", "}", "else", "ibegin", "iend");
+                List<Token> elseTokens = ParseControlBodyTokens("else");
                 if (!branchExecuted)
                 {
-                    _variables = Run(elseTokens, _variables, _currentFunctionName ?? "", CloneClassInfos(_classInfos));
+                    _variables = Run(elseTokens, _variables, _currentFunctionName ?? "", CloneClassInfos(_classInfos), true);
                 }
                 break;
             }
@@ -3426,6 +3573,10 @@ namespace FeiSharpStudio
         {
             List<Token> _tokens = new(tokens);
             Parser parser = new(_tokens);
+            // Nested parsers execute function bodies, but UI events must keep
+            // dispatching through the owning script scope, where globals live.
+            StandardLibrary.UiFunctionInvoker = InvokeUiFunction;
+            StandardLibrary.UiMethodInvoker = InvokeUiMethod;
             parser.player = this.player;
             parser.OutputEvent = this.OutputEvent;
             parser._variableInfos = _variableInfos;
@@ -3473,6 +3624,8 @@ namespace FeiSharpStudio
         {
             List<Token> _tokens = new(tokens);
             Parser parser = new(_tokens);
+            StandardLibrary.UiFunctionInvoker = InvokeUiFunction;
+            StandardLibrary.UiMethodInvoker = InvokeUiMethod;
             parser.player = this.player;
             parser.OutputEvent = this.OutputEvent;
             parser._variables = _vars;
@@ -3508,11 +3661,25 @@ namespace FeiSharpStudio
             KeyValuePair<Dictionary<string, object>, Dictionary<string, FunctionInfo>> result = new(parser._variables, parser._functions);
             return result;
         }
-        internal Dictionary<string, object> Run(IEnumerable<Token> tokens, Dictionary<string, object> _vars, string funcName, Dictionary<string, ClassInfo> a)
+        internal class ReturnStatementExitException : System.Exception
+        {
+            public ReturnStatementExitException() : base()
+            {
+            }
+        }
+        bool isRun = false;
+        internal Dictionary<string, object> Run(
+            IEnumerable<Token> tokens,
+            Dictionary<string, object> _vars,
+            string funcName,
+            Dictionary<string, ClassInfo> a,
+            bool propagateReturn = false,
+            IReadOnlyCollection<string>? lambdaParameters = null)
         {
             List<Token> _tokens = new(tokens);
             Parser parser = new(_tokens);
             parser.player = this.player;
+            parser.isRun = true;
             parser.OutputEvent = this.OutputEvent;
             parser._variables = _vars;
             parser._classInfos = CloneClassInfos(a);
@@ -3524,9 +3691,19 @@ namespace FeiSharpStudio
             parser._propagateFeiSharpExceptions = _propagateFeiSharpExceptions;
             parser._currentExecutionClassName = _currentExecutionClassName;
             parser._currentFunctionName = funcName;
+            parser._lambdaParametersBeingParsed = lambdaParameters == null
+                ? null
+                : new HashSet<string>(lambdaParameters, StringComparer.OrdinalIgnoreCase);
             try
             {
                 parser.ParseStatements(funcName);
+            }
+            catch (ReturnStatementExitException)
+            {
+                if (propagateReturn)
+                {
+                    throw;
+                }
             }
             catch (OperationCanceledException)
             {
@@ -3548,27 +3725,108 @@ namespace FeiSharpStudio
         }
         private void ExecuteNestedBlock(IEnumerable<Token> tokens, string funcName, Dictionary<string, object> vars, Dictionary<string, ClassInfo> classInfos)
         {
-            Parser parser = new(new List<Token>(tokens));
-            parser.player = this.player;
-            parser.OutputEvent = this.OutputEvent;
-            parser._variables = vars;
-            parser._variableInfos = _variableInfos;
-            parser._classInfos = CloneClassInfos(classInfos);
-            parser._functions = new(_functions, StringComparer.OrdinalIgnoreCase);
-            parser._currentNamespace = _currentNamespace;
-            parser._usingNamespaces = new HashSet<string>(_usingNamespaces, StringComparer.OrdinalIgnoreCase);
-            parser._results = _results;
-            parser.ShouldCancel = this.ShouldCancel;
-            parser._propagateFeiSharpExceptions = true;
-            parser._currentExecutionClassName = _currentExecutionClassName;
-            parser._currentFunctionName = funcName;
-            parser.ParseStatements(funcName);
-            _functions = parser._functions;
-            _classInfos = parser._classInfos;
-            _results = parser._results;
-            _variables = parser._variables;
-            _variableInfos = parser._variableInfos;
-            this.player = parser.player;
+            List<Token> nestedTokens = tokens as List<Token> ?? new List<Token>(tokens);
+            StandardLibrary.UiFunctionInvoker = InvokeUiFunction;
+            StandardLibrary.UiMethodInvoker = InvokeUiMethod;
+
+            // A loop used to construct and initialize an entire Parser for every
+            // iteration. Execute the immutable body token stream in this parser
+            // instead, while preserving the scope fields that a nested parser did
+            // not propagate back to its owner.
+            List<Token> savedTokens = _tokens;
+            int savedCurrent = _current;
+            bool savedPropagateErrors = _propagateFeiSharpExceptions;
+            bool savedIsRun = isRun;
+            bool savedIsParsingClassBody = _isParsingClassBody;
+            string? savedClassDeclarationName = _classDeclarationName;
+            string? savedExecutionClassName = _currentExecutionClassName;
+            string? savedFunctionName = _currentFunctionName;
+            string? savedNamespace = _currentNamespace;
+            HashSet<string> savedUsingNamespaces = _usingNamespaces;
+            HashSet<string>? savedLambdaParameters = _lambdaParametersBeingParsed;
+
+            _tokens = nestedTokens;
+            _current = 0;
+            _variables = vars;
+            _classInfos = classInfos;
+            _propagateFeiSharpExceptions = true;
+            isRun = false;
+            _isParsingClassBody = false;
+            _classDeclarationName = null;
+            _currentFunctionName = funcName;
+            _usingNamespaces = new HashSet<string>(savedUsingNamespaces, StringComparer.OrdinalIgnoreCase);
+            _lambdaParametersBeingParsed = null;
+
+            try
+            {
+                ParseStatements(funcName);
+            }
+            finally
+            {
+                _tokens = savedTokens;
+                _current = savedCurrent;
+                _propagateFeiSharpExceptions = savedPropagateErrors;
+                isRun = savedIsRun;
+                _isParsingClassBody = savedIsParsingClassBody;
+                _classDeclarationName = savedClassDeclarationName;
+                _currentExecutionClassName = savedExecutionClassName;
+                _currentFunctionName = savedFunctionName;
+                _currentNamespace = savedNamespace;
+                _usingNamespaces = savedUsingNamespaces;
+                _lambdaParametersBeingParsed = savedLambdaParameters;
+            }
+        }
+        private Action? TryCompileSimpleAssignment(List<Token> tokens)
+        {
+            int end = tokens.Count;
+            if (end > 0 && tokens[end - 1].Type == TokenTypes.Punctuation && tokens[end - 1].Value == ";")
+                end--;
+            if (end < 3 || tokens[0].Type != TokenTypes.Identifier
+                || tokens[1].Type != TokenTypes.Operator || tokens[1].Value != "=")
+                return null;
+
+            // Function/member/index access can have parse-time side effects in the
+            // current evaluator, so only cache plain arithmetic/value expressions.
+            for (int i = 2; i < end; i++)
+            {
+                Token token = tokens[i];
+                if (token.Value is "." or "[" or "]" or ",") return null;
+                if (token.Value == "(")
+                {
+                    if (i > 2 && tokens[i - 1].Type == TokenTypes.Identifier) return null;
+                }
+                if (token.Type is TokenTypes.String or TokenTypes.Character) return null;
+            }
+
+            string variableName = tokens[0].Value;
+            if (!_variables.ContainsKey(variableName)
+                || variableName.EndsWith("_readonly", StringComparison.OrdinalIgnoreCase)
+                || keys.Contains(variableName)
+                || (_variableInfos.TryGetValue(variableName, out VariableInfo? info) && info.IsReadOnly))
+                return null;
+
+            List<Token> savedTokens = _tokens;
+            int savedCurrent = _current;
+            Expr expression;
+            try
+            {
+                _tokens = tokens;
+                _current = 2;
+                expression = ParseExpression();
+                if (_current != end) return null;
+            }
+            finally
+            {
+                _tokens = savedTokens;
+                _current = savedCurrent;
+            }
+
+            return () =>
+            {
+                object value = EvaluateExpression(expression);
+                _variables[variableName] = value;
+                RememberItCandidate(value);
+            };
         }
         internal Dictionary<string, object> Run(string code, int a)
         {
@@ -3608,7 +3866,7 @@ namespace FeiSharpStudio
                 _current = savedPosition;
                 return false;
             }
-            if (!MatchToken(TokenTypes.Operator, out string op) || op != "=")
+            if (!MatchToken(TokenTypes.Operator, out string op) || (op != "=" && op != "+=" && op != "-="))
             {
                 _current = savedPosition;
                 return false;
@@ -3633,7 +3891,27 @@ namespace FeiSharpStudio
             if (target != null && target.Kind == "class" && target.ClassInfo != null && target.MemberName != null
                 && GetVariableInfoOrThrow(target.ClassInfo, target.MemberName).IsReadOnly)
             {
-                throw new Exception(_tokens, _current, "Cannot set or cover a const", FeiSharpErrorCodes.ReadonlyViolation);
+                    throw new Exception(_tokens, _current, "Cannot set or cover a const", FeiSharpErrorCodes.ReadonlyViolation);
+            }
+            if (op is "+=" or "-=")
+            {
+                object handler = ParseAssignmentValue(out _);
+                object? eventTarget = target?.Kind switch
+                {
+                    "variable" when target.ClassInfo != null => target.ClassInfo._Vars.GetValueOrDefault(target.Name),
+                    "variable" => _variables.GetValueOrDefault(target?.Name ?? ""),
+                    "instance" when target.Instance != null && target.MemberName != null => target.Instance.GetVariable(target.MemberName),
+                    "class" when target.ClassInfo != null && target.MemberName != null => target.ClassInfo._Vars.GetValueOrDefault(target.MemberName),
+                    _ => null
+                };
+                if (eventTarget is not FeiSharpEvent feiSharpEvent)
+                {
+                    throw new Exception(_tokens, _current, "Only event values support '+=' and '-='.", FeiSharpErrorCodes.TypeMismatch);
+                }
+                if (op == "+=") feiSharpEvent.Subscribe(handler);
+                else feiSharpEvent.Unsubscribe(handler);
+                ConsumeOptionalSemicolon();
+                return true;
             }
             object value = ParseAssignmentValue(out string? assignedClassName);
             if (keys.Contains(target.Name)) throw new Exception(_tokens, _current, "Cannot set or cover a const", FeiSharpErrorCodes.ReadonlyViolation);
@@ -4035,6 +4313,21 @@ namespace FeiSharpStudio
             }
             return null;
         }
+        private void ParseEventDeclaration()
+        {
+            if (!MatchMemberName(out string eventName))
+            {
+                throw new Exception(_tokens, _current, "Expected event name", "FS2003");
+            }
+            if (_isParsingClassBody)
+            {
+                _variableInfos[eventName] = new VariableInfo(
+                    eventName, MethodVisibility.Public, false, true, _classDeclarationName);
+            }
+            _variables[eventName] = new FeiSharpEvent();
+            ConsumeOptionalSemicolon();
+        }
+
         private void ParseVariableDeclaration(MethodVisibility? explicitVisibility = null, bool isStatic = false, bool isConst = false)
         {
             // Both spellings share the normal variable storage and metadata.  This
@@ -4141,7 +4434,10 @@ namespace FeiSharpStudio
                 .Where(kvp =>
                     !classInfo.VariableInfos.TryGetValue(kvp.Key, out VariableInfo? info)
                     || !info.IsStatic)
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(
+                    kvp => kvp.Key,
+                    kvp => kvp.Value is FeiSharpEvent ? new FeiSharpEvent() : kvp.Value,
+                    StringComparer.OrdinalIgnoreCase);
             if (classInfo.ConstructorInfo != null)
             {
                 var ctorArgs = new List<object>();
@@ -4220,6 +4516,24 @@ namespace FeiSharpStudio
                         throw new Exception(parser._tokens, parser._current, $"Method '{methodName}' is not accessible.", "FS3001");
                     }
                     var methodScope = new Dictionary<string, object>(Variables);
+                    // Static fields belong to the class rather than to this
+                    // instance, but instance methods may read and update
+                    // them by their unqualified names.
+                    parser._classInfos.TryGetValue(ClassName, out ClassInfo? classInfo);
+                    classInfo ??= parser._classInfos.Values.FirstOrDefault(info =>
+                        string.Equals(info.Name, ClassName, StringComparison.OrdinalIgnoreCase));
+                    var staticMemberNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    if (classInfo != null)
+                    {
+                        foreach (var member in classInfo.VariableInfos.Where(member => member.Value.IsStatic))
+                        {
+                            staticMemberNames.Add(member.Key);
+                            if (classInfo._Vars.TryGetValue(member.Key, out object? staticValue))
+                            {
+                                methodScope[member.Key] = staticValue;
+                            }
+                        }
+                    }
                     for (int i = 0; i < function.Parameter.Count && i < args.Count; i++)
                     {
                         methodScope[function.Parameter[i]] = args[i];
@@ -4233,7 +4547,18 @@ namespace FeiSharpStudio
                     parser._currentFunctionName = previousFunctionName;
                     foreach (var kvp in result)
                     {
-                        Variables[kvp.Key] = kvp.Value;
+                        if (staticMemberNames.Contains(kvp.Key) && classInfo != null)
+                        {
+                            foreach (var matchingClass in parser._classInfos.Values.Where(info =>
+                                string.Equals(info.Name, classInfo.Name, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                matchingClass._Vars[kvp.Key] = kvp.Value;
+                            }
+                        }
+                        else
+                        {
+                            Variables[kvp.Key] = kvp.Value;
+                        }
                     }
                     if (parser._results.TryGetValue(methodName, out var returnValue))
                     {
@@ -4307,7 +4632,7 @@ namespace FeiSharpStudio
         private bool IsOperator(string token)
         {
             return token == "+" || token == "-" || token == "*" || token == "/" ||
-                   token == "^" || token == ">" || token == "<" || token == "=" ||
+                   token == "^" || token == ">" || token == "<" || token == "=" || token == "==" ||
                    token == "!=" || token == ">=" || token == "<=" ||
                    token == "||" || token == "&&" ||
                    token == "!" || token == "|" || token == "&" || token == "$" || token == "++" || token == "--";
@@ -4321,7 +4646,7 @@ namespace FeiSharpStudio
                 "&&" => 2,
                 "|" => 3,
                 "&" => 4,
-                "=" or "!=" => 5,
+                "=" or "==" or "!=" => 5,
                 ">" or "<" or ">=" or "<=" => 5,
                 "^" => 6,
                 "+" or "-" => 7,
@@ -4386,6 +4711,10 @@ namespace FeiSharpStudio
                 Expr operand = ParsePrimary();
                 return new UnaryExpr(op, operand);
             }
+            if (TryParseLambdaExpression(out Expr? lambda))
+            {
+                return lambda;
+            }
             string varName = "";
             if (MatchPunctuation("("))
             {
@@ -4394,23 +4723,23 @@ namespace FeiSharpStudio
                 {
                     throw new Exception(_tokens, _current, "Expected ')' after expression", "FS2003");
                 }
-                return expr;
+                return CheckPunctuation(".") ? ParseRuntimeAccess(EvaluateExpression(expr)) : expr;
             }
             if (MatchToken(TokenTypes.Number))
             {
-                return new ValueExpr(double.Parse(Previous().Value));
+                return ParseRuntimeAccess(double.Parse(Previous().Value));
             }
             else if (MatchPunctuation("["))
             {
-                return new ValueExpr(ParseInlineArrayLiteral());
+                return ParseRuntimeAccess(ParseInlineArrayLiteral());
             }
             else if (MatchToken(TokenTypes.String))
             {
-                return new ValueExpr(Previous().Value);
+                return ParseRuntimeAccess(Previous().Value);
             }
             else if (MatchToken(TokenTypes.Character))
             {
-                return new ValueExpr(Previous().Value[0]);
+                return ParseRuntimeAccess(Previous().Value[0]);
             }
             else if (MatchKeyword(TokenKeywords._this))
             {
@@ -4424,6 +4753,13 @@ namespace FeiSharpStudio
             else if (MatchIdentifierOrSoftKeyword(out string identifierOrSoftKeyword, TokenKeywords._base))
             {
                 varName = identifierOrSoftKeyword;
+                // The parser may consume the following delimiter while resolving
+                // this name.  Preserve the identifier's position for diagnostics.
+                int varNameTokenIndex = _current - 1;
+                if (CheckOperator("<") && TryResolveFunctionName(varName, out _, out _))
+                {
+                    ParseGenericArgumentList();
+                }
                 if (TryParseQualifiedNamespaceFunctionCall(varName, out Expr? qualifiedCall))
                 {
                     return qualifiedCall;
@@ -4442,9 +4778,17 @@ namespace FeiSharpStudio
                 {
                     return new BinaryExpr(new ValueExpr(ParseObjectInvoke()), "OBJ", null);
                 }
+                if (varName.Equals("null", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ParseRuntimeAccess(null);
+                }
                 if (Previous().Type == TokenTypes.Identifier && Previous().Value == "new")
                 {
                     return ParseNewExpression();
+                }
+                if (_lambdaParametersBeingParsed?.Contains(varName) == true)
+                {
+                    return new VarExpr(varName);
                 }
                 if (_variables.TryGetValue(varName, out object value1))
                 {
@@ -4469,16 +4813,22 @@ namespace FeiSharpStudio
                         return ParseRuntimeAccess(memberValue);
                     }
                     if (varName == "_") throw new Exception(_tokens, _current, "Variable, function or class not defined: " + varName, "FS3001");
-                    return ParseRuntimeAccess(value1);
+                    if (MatchPunctuation("("))
+                    {
+                        return ParseRuntimeAccess(InvokeCallable(value1, ParseArgumentValuesUntil(")")));
+                    }
+                    // Keep ordinary variable reads symbolic. This makes an Expr
+                    // reusable (not a snapshot of the value at parse time) and
+                    // avoids reparsing loop conditions on every iteration.
+                    return CheckPunctuation(".") ? ParseRuntimeAccess(value1) : new VarExpr(varName);
                 }
                 if (_classInfos.ContainsKey(varName))
                 {
                     if (CheckPunctuation("("))
                     {
-                        ClassInfo classInfo = _classInfos[varName];
-                        MatchPunctuation("(");
-                        List<object> args = ParseArgumentValuesUntil(")");
-                        return new ValueExpr(CreateClassInstance(varName, classInfo, args));
+                        throw new Exception(_tokens, _current,
+                            $"Class '{varName}' must be instantiated with 'new {varName}(...)'.",
+                            "FS2003");
                     }
                     if (MatchPunctuation("."))
                     {
@@ -4490,6 +4840,11 @@ namespace FeiSharpStudio
                         ClassInfo classInfo = _classInfos[varName];
                         if (MatchPunctuation("("))
                         {
+                            List<object> args = ParseArgumentValuesUntil(")");
+                            if (TryInvokeUniversalMember(classInfo, memberName, args, out object? intrinsicResult))
+                            {
+                                return ParseRuntimeAccess(intrinsicResult);
+                            }
                             if (!classInfo._FunctionInfo.TryGetValue(memberName, out FunctionInfo? functionInfo))
                             {
                                 throw new Exception(_tokens, _current, $"Undefined member: {memberName}", "FS3001");
@@ -4499,23 +4854,8 @@ namespace FeiSharpStudio
                                 throw new Exception(_tokens, _current, $"Member '{memberName}' is not static.", "FS3001");
                             }
 
-                            List<object> args = [];
-                            while (!IsAtEnd() && Peek().Value != ")")
-                            {
-                                if (Peek().Value == ",")
-                                {
-                                    Advance();
-                                    continue;
-                                }
-                                args.Add(EvaluateExpression(ParseExpression()));
-                            }
-                            if (!MatchPunctuation(")"))
-                            {
-                                throw new Exception(_tokens, _current, "Expected ')'", "FS2003");
-                            }
-
                             RunFunction(memberName, functionInfo, classInfo, args);
-                            return new ValueExpr(GetFunctionReturnValueOrDefault(memberName));
+                            return ParseRuntimeAccess(GetFunctionReturnValueOrDefault(memberName));
                         }
 
                         if (!classInfo._Vars.TryGetValue(memberName, out object? memberValue))
@@ -4540,10 +4880,14 @@ namespace FeiSharpStudio
                     {
                         return new ValueExpr(classValue);
                     }
-                    throw new Exception(_tokens, _current, $"Undefined variable, function or class: {varName}", FeiSharpErrorCodes.UndefinedSymbol);
+                    throw new Exception(_tokens, varNameTokenIndex, $"Undefined variable, function or class: {varName}", FeiSharpErrorCodes.UndefinedSymbol);
                 }
                 if (TryResolveFunctionName(varName, out string resolvedFunctionName, out FunctionInfo resolvedFunction))
                 {
+                    if (CheckPunctuation("."))
+                    {
+                        return ParseRuntimeAccess(resolvedFunction);
+                    }
                     RunFunction(resolvedFunctionName, resolvedFunction, null);
                     return ParseRuntimeAccess(GetFunctionReturnValueOrDefault(resolvedFunctionName));
                 }
@@ -4566,7 +4910,7 @@ namespace FeiSharpStudio
                     {
                         return ParseRuntimeAccess(classValue);
                     }
-                    throw new Exception(_tokens, _current, $"Undefined variable, function or class: {varName}", FeiSharpErrorCodes.UndefinedSymbol);
+                    throw new Exception(_tokens, varNameTokenIndex, $"Undefined variable, function or class: {varName}", FeiSharpErrorCodes.UndefinedSymbol);
                 }
             }
             else if (MatchPunctuation("("))
@@ -4580,13 +4924,118 @@ namespace FeiSharpStudio
             }
             else if (MatchKeyword("true"))
             {
-                return new ValueExpr(true);
+                return ParseRuntimeAccess(true);
             }
             else if (MatchKeyword("false"))
             {
-                return new ValueExpr(false);
+                return ParseRuntimeAccess(false);
             }
             throw new Exception(_tokens, _current, "Unvalid token: " + Peek().Value, "FS2003");
+        }
+
+        private bool TryParseLambdaExpression(out Expr? expression)
+        {
+            expression = null;
+            int savedPosition = _current;
+            bool hasDelegatePrefix = Check(TokenTypes.Identifier)
+                && Peek().Value.Equals("delegate", StringComparison.OrdinalIgnoreCase)
+                && Peek(1).Value == "(";
+
+            if (hasDelegatePrefix)
+            {
+                Advance();
+            }
+
+            List<string> parameters = [];
+            if (Check(TokenTypes.Identifier) && Peek(1).Value == "=>")
+            {
+                parameters.Add(Advance().Value);
+            }
+            else if (CheckPunctuation("(") && LooksLikeLambdaParameterList(_current))
+            {
+                Advance();
+                while (!CheckPunctuation(")"))
+                {
+                    if (!MatchToken(TokenTypes.Identifier, out string parameter))
+                    {
+                        _current = savedPosition;
+                        return false;
+                    }
+                    parameters.Add(parameter);
+                    if (!MatchPunctuation(","))
+                    {
+                        break;
+                    }
+                }
+                if (!MatchPunctuation(")"))
+                {
+                    _current = savedPosition;
+                    return false;
+                }
+            }
+            else
+            {
+                _current = savedPosition;
+                return false;
+            }
+
+            if (!MatchOperator("=>"))
+            {
+                _current = savedPosition;
+                return false;
+            }
+            HashSet<string>? previousLambdaParameters = _lambdaParametersBeingParsed;
+            _lambdaParametersBeingParsed = new HashSet<string>(parameters, StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                if (CheckPunctuation("{"))
+                {
+                    expression = new LambdaExpr(parameters, ParseScopedTokens("{", "}", "lambda", "lbegin", "lend"));
+                }
+                else
+                {
+                    expression = new LambdaExpr(parameters, ParseExpression());
+                }
+            }
+            finally
+            {
+                _lambdaParametersBeingParsed = previousLambdaParameters;
+            }
+            return true;
+        }
+
+        private bool LooksLikeLambdaParameterList(int start)
+        {
+            int index = start;
+            if (index >= _tokens.Count || _tokens[index].Value != "(")
+            {
+                return false;
+            }
+            index++;
+            if (index < _tokens.Count && _tokens[index].Value == ")")
+            {
+                index++;
+                return index < _tokens.Count && _tokens[index].Value == "=>";
+            }
+            while (index < _tokens.Count)
+            {
+                if (_tokens[index].Type != TokenTypes.Identifier)
+                {
+                    return false;
+                }
+                index++;
+                if (index < _tokens.Count && _tokens[index].Value == ")")
+                {
+                    index++;
+                    return index < _tokens.Count && _tokens[index].Value == "=>";
+                }
+                if (index >= _tokens.Count || _tokens[index].Value != ",")
+                {
+                    return false;
+                }
+                index++;
+            }
+            return false;
         }
         private Expr ParseStandardFunctionCall(string functionName)
         {
@@ -4927,6 +5376,136 @@ namespace FeiSharpStudio
                 item => item.Key,
                 item => new ClassInfo(item.Value._FunctionInfo, item.Value._Vars, item.Value.Name, item.Value.ConstructorInfo, item.Value.BaseClassName, item.Value.VariableInfos),
                 StringComparer.OrdinalIgnoreCase);
+        }
+        private List<Token> ParseControlBodyTokens(string blockName)
+        {
+            if (Peek().Type == TokenTypes.Punctuation && Peek().Value == "{")
+            {
+                return ParseScopedTokens("{", "}", blockName, "", "");
+            }
+
+            int start = _current;
+            int end = FindSingleStatementEnd(start);
+            if (end <= start)
+            {
+                throw new Exception(_tokens, _current,
+                    $"Expected a statement or '{{' to start {blockName} body", "FS2003");
+            }
+
+            _current = end;
+            return _tokens.GetRange(start, end - start);
+        }
+        private int FindSingleStatementEnd(int start)
+        {
+            if (start >= _tokens.Count || _tokens[start].Type == TokenTypes.EndOfFile)
+                return start;
+
+            string value = _tokens[start].Value;
+            if (value.Equals(TokenKeywords._if, StringComparison.OrdinalIgnoreCase))
+            {
+                int index = FindControlHeaderEnd(start + 1);
+                index = FindControlBodyEnd(index);
+                if (index < _tokens.Count && _tokens[index].Value.Equals(TokenKeywords._else, StringComparison.OrdinalIgnoreCase))
+                {
+                    index = FindControlBodyEnd(index + 1);
+                }
+                return index;
+            }
+
+            if (value.Equals(TokenKeywords._for, StringComparison.OrdinalIgnoreCase)
+                || value.Equals(TokenKeywords._while, StringComparison.OrdinalIgnoreCase)
+                || value.Equals("foreach", StringComparison.OrdinalIgnoreCase))
+            {
+                int index = FindControlHeaderEnd(start + 1);
+                return FindControlBodyEnd(index);
+            }
+
+            if (value.Equals("doWhile", StringComparison.OrdinalIgnoreCase))
+            {
+                int index = FindControlBodyEnd(start + 1);
+                if (index < _tokens.Count && _tokens[index].Value.Equals(TokenKeywords._while, StringComparison.OrdinalIgnoreCase))
+                {
+                    index = FindControlHeaderEnd(index + 1);
+                    if (index < _tokens.Count && _tokens[index].Value == ";")
+                        index++;
+                }
+                return index;
+            }
+
+            int parenthesisDepth = 0;
+            int bracketDepth = 0;
+            int braceDepth = 0;
+            for (int index = start; index < _tokens.Count; index++)
+            {
+                Token token = _tokens[index];
+                if (token.Type == TokenTypes.EndOfFile)
+                    return index;
+
+                if (token.Type == TokenTypes.Punctuation)
+                {
+                    switch (token.Value)
+                    {
+                        case "(": parenthesisDepth++; break;
+                        case ")": parenthesisDepth--; break;
+                        case "[": bracketDepth++; break;
+                        case "]": bracketDepth--; break;
+                        case "{": braceDepth++; break;
+                        case "}":
+                            if (braceDepth == 0 && parenthesisDepth == 0 && bracketDepth == 0)
+                                return index;
+                            braceDepth--;
+                            break;
+                        case ";":
+                            if (parenthesisDepth == 0 && bracketDepth == 0 && braceDepth == 0)
+                                return index + 1;
+                            break;
+                    }
+                }
+            }
+            return _tokens.Count;
+        }
+        private int FindControlHeaderEnd(int start)
+        {
+            int index = start;
+            while (index < _tokens.Count && _tokens[index].Value != "(")
+                index++;
+            if (index >= _tokens.Count)
+                throw new Exception(_tokens, start, "Expected '(' after control statement", "FS2003");
+
+            int depth = 0;
+            for (; index < _tokens.Count; index++)
+            {
+                string value = _tokens[index].Value;
+                if (value == "(") depth++;
+                else if (value == ")")
+                {
+                    depth--;
+                    if (depth == 0)
+                        return index + 1;
+                }
+            }
+            throw new Exception(_tokens, start, "Expected ')' after control statement header", "FS2003");
+        }
+        private int FindControlBodyEnd(int start)
+        {
+            if (start >= _tokens.Count)
+                return start;
+            if (_tokens[start].Type == TokenTypes.Punctuation && _tokens[start].Value == "{")
+            {
+                int depth = 0;
+                for (int index = start; index < _tokens.Count; index++)
+                {
+                    if (_tokens[index].Value == "{") depth++;
+                    else if (_tokens[index].Value == "}")
+                    {
+                        depth--;
+                        if (depth == 0)
+                            return index + 1;
+                    }
+                }
+                throw new Exception(_tokens, start, "Unterminated control statement body", "FS2003");
+            }
+            return FindSingleStatementEnd(start);
         }
         private List<Token> ParseScopedTokens(string openToken, string closeToken, string blockName, string? legacyOpenToken = null, string? legacyCloseToken = null)
         {
@@ -5422,6 +6001,8 @@ namespace FeiSharpStudio
         {
             switch (expr)
             {
+                case LambdaExpr lambdaExpr:
+                    return new FeiSharpLambda(this, lambdaExpr);
                 case RuntimeValueExpr runtimeValueExpr:
                     return runtimeValueExpr.Value;
                 case ValueExpr numExpr:
@@ -5442,6 +6023,59 @@ namespace FeiSharpStudio
                 default:
                     throw new Exception(_tokens, _current, "Unexpected expression type", "FS2003");
             }
+        }
+
+        private object? EvaluateLambda(
+            LambdaExpr definition,
+            Dictionary<string, object> capturedVariables,
+            IReadOnlyList<object> args)
+        {
+            Dictionary<string, object> scope = new(capturedVariables, StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < definition.Parameters.Count && i < args.Count; i++)
+            {
+                scope[definition.Parameters[i]] = args[i];
+            }
+            if (definition.Body != null)
+            {
+                Dictionary<string, object> previousVariables = _variables;
+                try
+                {
+                    _variables = scope;
+                    return EvaluateExpression(definition.Body);
+                }
+                finally
+                {
+                    _variables = previousVariables;
+                }
+            }
+            if (definition.BodyTokens != null)
+            {
+                Dictionary<string, object> result = Run(
+                    definition.BodyTokens,
+                    scope,
+                    "__lambda",
+                    CloneClassInfos(_classInfos),
+                    lambdaParameters: definition.Parameters);
+                return result.TryGetValue("__lambda:return", out object? value) ? value : null;
+            }
+            return null;
+        }
+
+        private object? InvokeCallable(object? callable, IReadOnlyList<object> args)
+        {
+            if (callable is FeiSharpLambda lambda)
+            {
+                return lambda.Invoke(args);
+            }
+            if (callable is FeiSharpEvent eventValue)
+            {
+                return eventValue.Raise(args, this);
+            }
+            if (callable is Delegate dotnetDelegate)
+            {
+                return dotnetDelegate.DynamicInvoke(args.ToArray());
+            }
+            throw new Exception(_tokens, _current, "Value is not callable.", FeiSharpErrorCodes.TypeMismatch);
         }
         private object? EvaluateConditionalExpr(ConditionalExpr conditionalExpr)
         {
@@ -5510,6 +6144,18 @@ namespace FeiSharpStudio
         private Expr ParseNewExpression()
         {
             int savedPosition = _current;
+            if (Check(TokenTypes.Identifier) && _classInfos.TryGetValue(Peek().Value, out ClassInfo? classInfo))
+            {
+                string className = Advance().Value;
+                ParseGenericArgumentList();
+                if (!MatchPunctuation("("))
+                {
+                    throw new Exception(_tokens, _current,
+                        $"Expected '(' after class name '{className}'.", FeiSharpErrorCodes.MissingDelimiter);
+                }
+                List<object> args = ParseArgumentValuesUntil(")");
+                return ParseRuntimeAccess(CreateClassInstance(className, classInfo, args));
+            }
             if (TryParseCollectionCreation(out object? created))
             {
                 return new ValueExpr(created);
@@ -5770,7 +6416,18 @@ namespace FeiSharpStudio
                     {
                         if (MatchPunctuation("("))
                         {
-                            currentValue = classInstance.CallMethod(memberName, ParseArgumentValuesUntil(")"), this);
+                            List<object> args = ParseArgumentValuesUntil(")");
+                            if (TryInvokeUniversalMember(classInstance, memberName, args, out object? intrinsicResult))
+                            {
+                                currentValue = intrinsicResult;
+                            }
+                            else
+                            {
+                                object memberValue = classInstance.GetVariable(memberName);
+                                currentValue = memberValue is FeiSharpEvent eventValue
+                                    ? eventValue.Raise(args, this)
+                                    : classInstance.CallMethod(memberName, args, this);
+                            }
                         }
                         else
                         {
@@ -5874,6 +6531,21 @@ namespace FeiSharpStudio
             {
                 throw new Exception(_tokens, _current, $"Cannot access member '{memberName}' on null.", FeiSharpErrorCodes.NullReference);
             }
+            if (target is string text)
+            {
+                return memberName.ToLowerInvariant() switch
+                {
+                    "length" => text.Length,
+                    "isempty" => text.Length == 0,
+                    "isnullorwhitespace" => string.IsNullOrWhiteSpace(text),
+                    _ => GetReflectedRuntimeMember(target, memberName)
+                };
+            }
+            return GetReflectedRuntimeMember(target, memberName);
+        }
+
+        private object? GetReflectedRuntimeMember([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)] object target, string memberName)
+        {
             if (memberName.Equals("Count", StringComparison.OrdinalIgnoreCase))
             {
                 if (target is ICollection collection)
@@ -5904,9 +6576,31 @@ namespace FeiSharpStudio
         [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Runtime reflection for script engine")]
         private object? InvokeRuntimeMember([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] object? target, string memberName, List<object> args)
         {
+            if (TryInvokeUniversalMember(target, memberName, args, out object? universalResult))
+            {
+                return universalResult;
+            }
             if (target == null)
             {
                 throw new Exception(_tokens, _current, $"Cannot invoke member '{memberName}' on null.", FeiSharpErrorCodes.NullReference);
+            }
+            // FeiSharp callables are runtime values rather than CLR objects with
+            // an Invoke method. Keep the two spellings equivalent:
+            //     f(args)
+            //     f.invoke(args)
+            // This also makes events usable through the same delegate API.
+            if (memberName.Equals("invoke", StringComparison.OrdinalIgnoreCase)
+                && target is FeiSharpLambda or FeiSharpEvent or Delegate)
+            {
+                return InvokeCallable(target, args);
+            }
+            if (target is string text && TryInvokeStringMember(text, memberName, args, out object? stringResult))
+            {
+                return stringResult;
+            }
+            if (TryInvokeListMember(target, memberName, args, out object? listResult))
+            {
+                return listResult;
             }
             Type type = target.GetType();
             MethodInfo? method = type
@@ -5919,6 +6613,233 @@ namespace FeiSharpStudio
             }
             object?[] boundArgs = ConvertArgumentsToTarget(args, method);
             return method.Invoke(target, boundArgs);
+        }
+
+        private bool TryInvokeUniversalMember(
+            object? target,
+            string memberName,
+            IReadOnlyList<object> args,
+            out object? result)
+        {
+            result = null;
+            string normalizedName = memberName.ToLowerInvariant();
+            if (normalizedName is not ("isclass" or "isfunction" or "getfunctionidentifier"
+                or "getclassidentifier" or "getallmembers"))
+            {
+                return false;
+            }
+            if (args.Count != 0)
+            {
+                throw new Exception(_tokens, _current,
+                    $"{memberName}() does not accept arguments.",
+                    FeiSharpErrorCodes.InvalidArgument);
+            }
+
+            switch (normalizedName)
+            {
+                case "isclass":
+                    result = target is ClassInfo;
+                    return true;
+                case "isfunction":
+                    result = target is FunctionInfo or FeiSharpLambda or Delegate;
+                    return true;
+                case "getfunctionidentifier":
+                    result = target switch
+                    {
+                        FunctionInfo function => function.Name,
+                        FeiSharpLambda => "<lambda>",
+                        Delegate callable => callable.Method.Name,
+                        _ => throw new Exception(_tokens, _current,
+                            "getFunctionIdentifier() can only be used on a function value.",
+                            FeiSharpErrorCodes.TypeMismatch)
+                    };
+                    return true;
+                case "getclassidentifier":
+                    result = target switch
+                    {
+                        ClassInfo classInfo => classInfo.Name,
+                        ClassInstance instance => instance.ClassName,
+                        _ => throw new Exception(_tokens, _current,
+                            "getClassIdentifier() can only be used on a class or class instance.",
+                            FeiSharpErrorCodes.TypeMismatch)
+                    };
+                    return true;
+                case "getallmembers":
+                    result = GetAllRuntimeMemberNames(target);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static List<object> GetAllRuntimeMemberNames(object? target)
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "isClass",
+                "isFunction",
+                "getFunctionIdentifier",
+                "getClassIdentifier",
+                "getAllMembers"
+            };
+
+            switch (target)
+            {
+                case ClassInfo classInfo:
+                    names.UnionWith(classInfo._Vars.Keys);
+                    names.UnionWith(classInfo._FunctionInfo.Keys);
+                    if (classInfo.ConstructorInfo != null)
+                    {
+                        names.Add("constructor");
+                    }
+                    break;
+                case ClassInstance instance:
+                    names.UnionWith(instance.Variables.Keys);
+                    names.UnionWith(instance.Functions.Keys);
+                    break;
+                case null:
+                    break;
+                default:
+                    Type type = target.GetType();
+                    names.UnionWith(type.GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(member => member.Name));
+                    names.UnionWith(type.GetFields(BindingFlags.Public | BindingFlags.Instance).Select(member => member.Name));
+                    names.UnionWith(type.GetMethods(BindingFlags.Public | BindingFlags.Instance).Select(member => member.Name));
+                    break;
+            }
+
+            return names
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .Cast<object>()
+                .ToList();
+        }
+
+        private bool TryInvokeStringMember(string text, string memberName, List<object> args, out object? result)
+        {
+            result = null;
+            switch (memberName.ToLowerInvariant())
+            {
+                case "toupper" when args.Count == 0:
+                    result = text.ToUpperInvariant();
+                    return true;
+                case "tolower" when args.Count == 0:
+                    result = text.ToLowerInvariant();
+                    return true;
+                case "trim" when args.Count == 0:
+                    result = text.Trim();
+                    return true;
+                case "trimstart" when args.Count == 0:
+                    result = text.TrimStart();
+                    return true;
+                case "trimend" when args.Count == 0:
+                    result = text.TrimEnd();
+                    return true;
+                case "contains" when args.Count == 1:
+                    result = text.Contains(args[0]?.ToString() ?? string.Empty, StringComparison.Ordinal);
+                    return true;
+                case "startswith" when args.Count == 1:
+                    result = text.StartsWith(args[0]?.ToString() ?? string.Empty, StringComparison.Ordinal);
+                    return true;
+                case "endswith" when args.Count == 1:
+                    result = text.EndsWith(args[0]?.ToString() ?? string.Empty, StringComparison.Ordinal);
+                    return true;
+                case "indexof" when args.Count == 1:
+                    result = text.IndexOf(args[0]?.ToString() ?? string.Empty, StringComparison.Ordinal);
+                    return true;
+                case "lastindexof" when args.Count == 1:
+                    result = text.LastIndexOf(args[0]?.ToString() ?? string.Empty, StringComparison.Ordinal);
+                    return true;
+                case "substring" when args.Count == 1:
+                    result = text.Substring(Convert.ToInt32(args[0]));
+                    return true;
+                case "substring" when args.Count == 2:
+                    result = text.Substring(Convert.ToInt32(args[0]), Convert.ToInt32(args[1]));
+                    return true;
+                case "charat" when args.Count == 1:
+                    result = text[Convert.ToInt32(args[0])];
+                    return true;
+                case "replace" when args.Count == 2 && args[0] is char oldChar && args[1] is char newChar:
+                    result = text.Replace(oldChar, newChar);
+                    return true;
+                case "replace" when args.Count == 2:
+                    result = text.Replace(args[0]?.ToString() ?? string.Empty, args[1]?.ToString() ?? string.Empty);
+                    return true;
+                case "insert" when args.Count == 2:
+                    result = text.Insert(Convert.ToInt32(args[0]), args[1]?.ToString() ?? string.Empty);
+                    return true;
+                case "remove" when args.Count == 1:
+                    result = text.Remove(Convert.ToInt32(args[0]));
+                    return true;
+                case "remove" when args.Count == 2:
+                    result = text.Remove(Convert.ToInt32(args[0]), Convert.ToInt32(args[1]));
+                    return true;
+                case "padleft" when args.Count == 1:
+                    result = text.PadLeft(Convert.ToInt32(args[0]));
+                    return true;
+                case "padright" when args.Count == 1:
+                    result = text.PadRight(Convert.ToInt32(args[0]));
+                    return true;
+                case "repeat" when args.Count == 1:
+                    result = string.Concat(Enumerable.Repeat(text, Convert.ToInt32(args[0])));
+                    return true;
+                case "tochararray" when args.Count == 0:
+                    result = text.ToCharArray();
+                    return true;
+                case "reverse" when args.Count == 0:
+                    result = new string(text.Reverse().ToArray());
+                    return true;
+                case "split" when args.Count == 1:
+                    result = text.Split(args[0]?.ToString() ?? string.Empty, StringSplitOptions.None);
+                    return true;
+            }
+            return false;
+        }
+        private bool TryInvokeListMember(object target, string memberName, List<object> args, out object? result)
+        {
+            result = null;
+            if (target is not IList list)
+            {
+                return false;
+            }
+
+            Type elementType = target.GetType().IsGenericType
+                ? target.GetType().GetGenericArguments()[0]
+                : typeof(object);
+            if (memberName.Equals("Add", StringComparison.OrdinalIgnoreCase) && args.Count == 1)
+            {
+                list.Add(ConvertValueForType(args[0], elementType));
+                return true;
+            }
+            if (memberName.Equals("Insert", StringComparison.OrdinalIgnoreCase) && args.Count == 2)
+            {
+                list.Insert(Convert.ToInt32(args[0]), ConvertValueForType(args[1], elementType));
+                return true;
+            }
+            if (memberName.Equals("RemoveAt", StringComparison.OrdinalIgnoreCase) && args.Count == 1)
+            {
+                list.RemoveAt(Convert.ToInt32(args[0]));
+                return true;
+            }
+            if (memberName.Equals("Remove", StringComparison.OrdinalIgnoreCase) && args.Count == 1)
+            {
+                list.Remove(ConvertValueForType(args[0], elementType));
+                return true;
+            }
+            if (memberName.Equals("Contains", StringComparison.OrdinalIgnoreCase) && args.Count == 1)
+            {
+                result = list.Contains(ConvertValueForType(args[0], elementType));
+                return true;
+            }
+            if (memberName.Equals("IndexOf", StringComparison.OrdinalIgnoreCase) && args.Count == 1)
+            {
+                result = list.IndexOf(ConvertValueForType(args[0], elementType));
+                return true;
+            }
+            if (memberName.Equals("Clear", StringComparison.OrdinalIgnoreCase) && args.Count == 0)
+            {
+                list.Clear();
+                return true;
+            }
+            return false;
         }
         private bool CanBindArguments(ParameterInfo[] parameters, List<object> args)
         {
@@ -6078,7 +6999,7 @@ namespace FeiSharpStudio
                 "+" => leftStr + rightStr,
                 "-" => Regex.Replace(leftStr, Regex.Escape(rightStr), ""),
                 "/" => leftStr.Split(rightStr).Length - 1,
-                "=" => leftStr == rightStr,
+                "=" or "==" => leftStr == rightStr,
                 "!=" => leftStr != rightStr,
                 _ => throw new Exception(_tokens, _current,
                     $"Cannot using operator '{op}' to connect string_obj and string_obj.", "FS2003")
@@ -6094,7 +7015,7 @@ namespace FeiSharpStudio
                 "&" => left && right,
                 "|" => left || right,
                 "!=" => left != right,
-                "=" => left == right,
+                "=" or "==" => left == right,
                 _ => throw new Exception(_tokens, _current,
                     $"Cannot using operator '{op}' to connect bool_obj and bool_obj.", "FS2003")
             };
@@ -6187,7 +7108,7 @@ namespace FeiSharpStudio
                 "<" => leftNum < rightNum,
                 ">=" => leftNum >= rightNum,
                 "<=" => leftNum <= rightNum,
-                "=" => leftNum == rightNum,
+                "=" or "==" => leftNum == rightNum,
                 "&" => (int)leftNum & (int)rightNum,
                 "|" => (int)leftNum | (int)rightNum,
                 "!=" => leftNum != rightNum,

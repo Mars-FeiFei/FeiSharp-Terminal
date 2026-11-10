@@ -1,10 +1,18 @@
 ﻿using FeiSharpStudio;
 using System.Text;
-
+using Spectre.Console;
 namespace FeiSharpTerminal3._1.ExceptionThrow
 {
     internal class Exception : System.Exception
     {
+        private const string Reset = "[/]";
+        private const string Dim = "[dim]";
+        private const string Red = "[bold red]";
+        private const string Yellow = "[yellow]";
+        private const string Green = "[green]";
+        private const string Cyan = "[cyan]";
+        private const string Blue = "[blue]";
+        private const string Magenta = "[magenta]";
         public StringBuilder stringBuilder { get; private set; }
         public string ErrorType { get; }
         public string Description { get; }
@@ -20,23 +28,23 @@ namespace FeiSharpTerminal3._1.ExceptionThrow
             string? errorType = null) : base(message)
         {
             Description = message;
-            Number = code.ToUpperInvariant();
+            Number = NormalizeErrorCode(code, message);
             ErrorType = errorType ?? InferErrorType(Number);
 
             try
             {
                 var errorInfo = BuildDetailedError(tokens, current);
-                Line = errorInfo.Line;
+                Line = errorInfo.Line + 1;
                 Column = errorInfo.Column;
                 stringBuilder = errorInfo.MessageBuilder;
             }
             catch
             {
+                Line = 1;
+                Column = 1;
                 stringBuilder = new StringBuilder()
-                    .AppendLine($"╔═══ Error ═══╗")
-                    .AppendLine($"║ [{ErrorType}] {Number}           ")
-                    .AppendLine($"║ {Description}                    ")
-                    .AppendLine($"╚═════════════╝")
+                    .AppendLine($"{Red}{Number}{Reset} {Markup.Escape(Description)}")
+                    .AppendLine($"{Dim}Location: Line {Line}, Column {Column}{Reset}")
                     .AppendLine($"Help: https://mars-feifei.github.io/feitools.github.io/feisharp/documents/learn/#{Number.ToLowerInvariant()}");
             }
         }
@@ -46,184 +54,62 @@ namespace FeiSharpTerminal3._1.ExceptionThrow
             int current)
         {
             var sb = new StringBuilder();
+            if (tokens.Count == 0)
+            {
+                return (new StringBuilder()
+                    .AppendLine($"{Red}✗ {Number}{Reset}  {Yellow}{GetFriendlyErrorName(Number, ErrorType)}{Reset}")
+                    .AppendLine()
+                    .AppendLine($"{Blue}Reason:{Reset} {Markup.Escape(Description)}"), 0, 0);
+            }
+
+            current = Math.Clamp(current, 0, tokens.Count - 1);
             var errorToken = tokens[current];
+            var allLines = CodeHighlighter.SplitLines(tokens);
+            int currentLine = allLines.FindIndex(l => l.Start <= current && current <= l.End);
+            if (currentLine < 0) currentLine = Math.Max(0, allLines.Count - 1);
 
-            var lineInfo = GetLineInfo(tokens, current);
-            int currentLine = lineInfo.LineNumber;
-            int currentLineStart = lineInfo.LineStartIndex;
-            int currentLineEnd = lineInfo.LineEndIndex;
+            int sourceLineOffset = FeiSharpTerminal3._1.DebugProtocol.SourceLineOffset;
+            int sourceLineNumber = Math.Max(1, errorToken.Line - sourceLineOffset);
+            int column = Math.Max(1, errorToken.Column);
 
-            int column = CalculateColumn(tokens, currentLineStart, current);
-
-            var contextLines = GetContextLines(tokens, currentLine, lineInfo.AllLines);
+            string sourceName = string.IsNullOrWhiteSpace(FeiSharpTerminal3._1.DebugProtocol.SourcePath)
+                ? "<script>"
+                : Path.GetFileName(FeiSharpTerminal3._1.DebugProtocol.SourcePath);
 
             sb.AppendLine();
-            sb.AppendLine($"┌─── {ErrorType} ({Number}) ─────────────────────────────────────────────");
-            sb.AppendLine($"│ {Description}");
-            sb.AppendLine($"│ 🔗 https://mars-feifei.github.io/feitools.github.io/feisharp/documents/learn/#{Number.ToLowerInvariant()}");
-            sb.AppendLine("│");
+            sb.AppendLine($"{Red}✗ {Number}{Reset}  {Yellow}{GetFriendlyErrorName(Number, ErrorType)}{Reset}");
+            sb.AppendLine();
+            sb.AppendLine($"{Blue}Location:{Reset}  {Markup.Escape(sourceName)}:{sourceLineNumber}:{column}");
+            sb.AppendLine();
+            sb.AppendLine($"{Blue}Code snippet:{Reset}");
+            CodeHighlighter.AppendHighlightedCode(
+                sb,
+                tokens,
+                current,
+                contextRadius: 2,
+                sourceLineOffset: sourceLineOffset,
+                includeHeader: false);
 
-            sb.AppendLine($"│ 📍 Location:");
-            sb.AppendLine($"│    Line {currentLine + 1}, Column {column + 1}");
-            sb.AppendLine($"│    Token: '{errorToken.Value}' (Type: {errorToken.Type})");
-            sb.AppendLine("│");
-
-            sb.AppendLine($"│ 💻 Code Context:");
-
-            foreach (var ctxLine in contextLines)
-            {
-                string lineNumStr = (ctxLine.LineNumber + 1).ToString().PadLeft(3);
-                sb.Append($"│ {lineNumStr} │ ");
-
-                sb.Append(ctxLine.Content);
-                sb.AppendLine();
-
-                if (ctxLine.IsErrorLine)
-                {
-                    int errorColumn = (ctxLine.IsErrorLine && ctxLine.LineNumber == currentLine)
-                        ? column : 0;
-                    string pointer = GeneratePointer(ctxLine.Content, errorToken.Value, errorColumn);
-                    sb.Append($"│     │ {pointer}");
-                    sb.AppendLine();
-
-                    sb.Append($"│     │ ╰─ {Description}");
-                    sb.AppendLine();
-                }
-            }
+            sb.AppendLine();
+            sb.AppendLine($"{Blue}Reason:{Reset}");
+            sb.AppendLine(Markup.Escape(Description));
 
             var suggestions = GetSuggestions(errorToken, ErrorType, Number);
             if (suggestions.Count > 0)
             {
-                sb.AppendLine("│");
-                sb.AppendLine($"│ 💡 Suggestions:");
+                sb.AppendLine();
+                sb.AppendLine($"{Blue}Suggested fixes:{Reset}");
                 foreach (var suggestion in suggestions)
                 {
-                    sb.AppendLine($"│    • {suggestion}");
+                    sb.AppendLine($"{Cyan}▸{Reset} {Markup.Escape(suggestion)}");
                 }
             }
 
-            sb.AppendLine("└───────────────────────────────────────────────────────────────");
+            sb.AppendLine();
+            sb.AppendLine($"{Dim}Documentation: https://mars-feifei.github.io/feitools.github.io/feisharp/documents/learn/#{Number.ToLowerInvariant()}{Reset}");
             sb.AppendLine();
 
             return (sb, currentLine, column);
-        }
-
-        private class LineInfo
-        {
-            public int LineNumber { get; set; }
-            public int LineStartIndex { get; set; }
-            public int LineEndIndex { get; set; }
-            public List<(int Start, int End)> AllLines { get; set; } = new();
-        }
-
-        private LineInfo GetLineInfo(List<Token> tokens, int current)
-        {
-            var lines = new List<(int Start, int End)>();
-            int lineStart = 0;
-
-            for (int i = 0; i < tokens.Count; i++)
-            {
-                if (tokens[i].Value == ";" && tokens[i].Type == TokenTypes.Punctuation)
-                {
-                    lines.Add((lineStart, i));
-                    lineStart = i + 1;
-                }
-            }
-
-            if (lineStart < tokens.Count)
-            {
-                lines.Add((lineStart, tokens.Count - 1));
-            }
-
-            int currentLine = lines.FindIndex(l => l.Start <= current && current <= l.End);
-            if (currentLine == -1) currentLine = lines.Count - 1;
-
-            return new LineInfo
-            {
-                LineNumber = currentLine,
-                LineStartIndex = lines[currentLine].Start,
-                LineEndIndex = lines[currentLine].End,
-                AllLines = lines
-            };
-        }
-
-        private int CalculateColumn(List<Token> tokens, int lineStart, int current)
-        {
-            int col = 0;
-            for (int i = lineStart; i < current; i++)
-            {
-                col += StringWidthHelper.GetDisplayWidth(tokens[i].Value ?? "");
-                if (tokens[i].Value != ";")
-                {
-                    col += 1;
-                }
-            }
-            return col;
-        }
-
-        private List<ContextLine> GetContextLines(List<Token> tokens, int currentLine, List<(int Start, int End)> allLines)
-        {
-            var context = new List<ContextLine>();
-            int startLine = Math.Max(0, currentLine - 2);
-            int endLine = Math.Min(allLines.Count - 1, currentLine + 2);
-
-            for (int line = startLine; line <= endLine; line++)
-            {
-                var lineTokens = tokens.Skip(allLines[line].Start)
-                                       .Take(allLines[line].End - allLines[line].Start + 1)
-                                       .ToList();
-
-                var content = new StringBuilder();
-                foreach (var token in lineTokens)
-                {
-                    content.Append(token.Value);
-                    if (token.Value == "{" || token.Value == "}" || token.Value == ";")
-                    {
-                        content.Append('\n');
-                    }
-                    if (token.Value == "var" || token.Value == "class" || token.Value == "function")
-                    {
-                        content.Append(' ');
-                    }
-                }
-                string rawContent = content.ToString();
-                string trimmedContent = rawContent.TrimEnd();
-                context.Add(new ContextLine
-                {
-                    LineNumber = line,
-                    Content = trimmedContent,
-                    RawContent = rawContent,
-                    IsErrorLine = (line == currentLine)
-                });
-            }
-
-            return context;
-        }
-
-        private class ContextLine
-        {
-            public int LineNumber { get; set; }
-            public string Content { get; set; } = "";
-            public string RawContent { get; set; } = ""; public bool IsErrorLine { get; set; }
-        }
-
-        private string GeneratePointer(string lineContent, string errorToken, int column)
-        {
-            int pointerPos = column;
-            var pointer = new StringBuilder();
-
-            for (int i = 0; i < pointerPos; i++)
-            {
-                pointer.Append(' ');
-            }
-
-            pointer.Append('^');
-            for (int i = 1; i < errorToken.Length; i++)
-            {
-                pointer.Append('~');
-            }
-
-            return pointer.ToString();
         }
 
         private List<string> GetSuggestions(Token errorToken, string errorType, string errorCode)
@@ -314,6 +200,61 @@ namespace FeiSharpTerminal3._1.ExceptionThrow
             return suggestions;
         }
 
+        internal void PrintPanel()
+        {
+            var panel = new Panel(new Markup(stringBuilder.ToString()))
+                .Header("[bold cyan]FeiSharp Compilation Error[/]")
+                .Border(BoxBorder.Rounded)
+                .BorderStyle(Color.Cyan1)
+                .Padding(1, 0);
+            AnsiConsole.Write(panel);
+            AnsiConsole.WriteLine();
+        }
+
+        private static string NormalizeErrorCode(string code, string message)
+        {
+            string normalized = code.ToUpperInvariant();
+            if (normalized != "FS2003")
+                return normalized;
+
+            string text = message.ToLowerInvariant();
+            if (text.Contains("return can only") || text.Contains("break can only") || text.Contains("continue can only"))
+                return FeiSharpErrorCodes.InvalidControlFlow;
+            if (text.Contains("const") || text.Contains("readonly") || text.Contains("assignment"))
+                return FeiSharpErrorCodes.InvalidAssignment;
+            if (text.Contains("declaration") || text.Contains("visibility") || text.Contains("modifier"))
+                return FeiSharpErrorCodes.InvalidDeclaration;
+            if (text.Contains("expected") || text.Contains("excepted") || text.Contains("unvalid token"))
+            {
+                if (text.Contains("'('") || text.Contains("')'") || text.Contains("'['")
+                    || text.Contains("']'") || text.Contains("'{'") || text.Contains("'}'")
+                    || text.Contains("','") || text.Contains("'.'"))
+                    return FeiSharpErrorCodes.MissingDelimiter;
+                return FeiSharpErrorCodes.UnexpectedToken;
+            }
+            return normalized;
+        }
+
+        private static string GetFriendlyErrorName(string code, string errorType)
+        {
+            return code switch
+            {
+                "FS2001" => "意外的 Token",
+                "FS2002" => "缺少表达式",
+                "FS2004" => "缺少分隔符",
+                "FS2005" => "声明错误",
+                "FS2006" => "控制流错误",
+                "FS2007" => "赋值错误",
+                "FS3004" => "未定义符号",
+                "FS3005" => "参数无效",
+                "FS3006" => "类型不匹配",
+                "FS3007" => "索引越界",
+                "FS3008" => "空引用",
+                "FS3009" => "只读值被修改",
+                _ => errorType
+            };
+        }
+
         public static Exception FromSystemException(
             List<Token> tokens,
             int current,
@@ -339,29 +280,7 @@ namespace FeiSharpTerminal3._1.ExceptionThrow
 
         public void PrintColored()
         {
-            var originalColor = Console.ForegroundColor;
-
-            switch (ErrorType)
-            {
-                case "LexerError":
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    break;
-                case "SyntaxError":
-                    Console.ForegroundColor = ConsoleColor.Magenta;
-                    break;
-                case "SemanticError":
-                    Console.ForegroundColor = ConsoleColor.Cyan;
-                    break;
-                case "UserException":
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    break;
-                default:
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    break;
-            }
-
-            Console.Write(stringBuilder.ToString());
-            Console.ForegroundColor = originalColor;
+            PrintPanel();
         }
     }
     public static class StringWidthHelper

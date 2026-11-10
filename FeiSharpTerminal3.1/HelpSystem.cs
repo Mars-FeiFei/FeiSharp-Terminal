@@ -119,23 +119,49 @@ namespace FeiSharp8._5RuntimeSdk
             ["build"] = new CommandHelp
             {
                 Name = "build",
-                Summary = "Compile a FeiSharp source file or project to a Windows exe",
-                Description = "Builds a standalone Windows executable from a .fsc source file or a .feiproj project file. " +
-                             "If you omit the output path, the exe is written to bin\\obj\\feisharp.sdk 8.0\\项目名.exe inside the project directory.",
-                Usage = "build [source.fsc|project.feiproj]",
+                Summary = "Compile a FeiSharp source file or project",
+                Description = "Builds a .fsc source file or .feiproj project with selectable publish settings. " +
+                             "Command-line options override defaults from the .feiproj file.",
+                Usage = "build <source.fsc|project.feiproj> [options]",
                 Examples = new[]
                 {
-                    "build                       - Enter interactive build mode",
-                    "build app.fsc               - Build bin\\obj\\feisharp.sdk 8.0\\app.exe",
-                    "build demo.feiproj          - Build bin\\obj\\feisharp.sdk 8.0\\<project_name>.exe",
-                    "CLI: feisharp --build app.fsc out\\app.exe"
+                    "build app.fsc --mode aot",
+                    "build demo.feiproj -c Debug --no-clean",
+                    "CLI: feisharp build app.fsc -o out\\app.exe --self-contained --single-file"
                 },
                 Options = new[]
                 {
-                    "source.fsc|project.feiproj - Source file or project file to compile",
-                    "output.exe                 - Optional output path when using --build on the CLI"
+                    "-o, --output <path>       - Output executable path or directory",
+                    "-c, --configuration       - Debug or Release",
+                    "-r, --runtime <rid>       - Target runtime identifier",
+                    "--mode <mode>             - aot, self-contained, or framework-dependent",
+                    "--[no-]single-file        - Toggle single-file publishing",
+                    "--trim / --no-trim        - Toggle assembly trimming",
+                    "--[no-]debug-symbols      - Toggle debug symbols",
+                    "--clean / --no-clean      - Toggle output cleanup",
+                    "--artifacts / --executable-only - Choose copied artifacts",
+                    "--run                     - Run after a successful CLI build"
                 },
                 SeeAlso = new[] { "file", "run", "create", "help" }
+            },
+            ["generate"] = new CommandHelp
+            {
+                Name = "generate",
+                Summary = "Generate a small FeiSharp code snippet",
+                Description = "Uses simple keyword and fuzzy string matching to choose a built-in FeiSharp template. " +
+                             "It works offline and does not use an AI model.",
+                Usage = "generate <description> [--continue]",
+                Examples = new[]
+                {
+                    "generate lambda",
+                    "generate event handler",
+                    "generate a loop",
+                    "gen for while lambda event",
+                    "gen \"event handler\"",
+                    "generate --continue",
+                    "gen function"
+                },
+                SeeAlso = new[] { "run", "help" }
             },
             ["cd"] = new CommandHelp
             {

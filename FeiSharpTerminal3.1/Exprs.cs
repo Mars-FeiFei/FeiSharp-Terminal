@@ -42,6 +42,24 @@ namespace FeiSharpStudio
         public object Value { get; set; }
         public ValueExpr(object value) { Value = value; }
     }
+    public class LambdaExpr : Expr
+    {
+        public IReadOnlyList<string> Parameters { get; }
+        public Expr? Body { get; }
+        public IReadOnlyList<Token>? BodyTokens { get; }
+
+        public LambdaExpr(IReadOnlyList<string> parameters, Expr body)
+        {
+            Parameters = parameters;
+            Body = body;
+        }
+
+        public LambdaExpr(IReadOnlyList<string> parameters, IReadOnlyList<Token> bodyTokens)
+        {
+            Parameters = parameters;
+            BodyTokens = bodyTokens;
+        }
+    }
     public class RuntimeValueExpr : Expr
     {
         public object? Value { get; }

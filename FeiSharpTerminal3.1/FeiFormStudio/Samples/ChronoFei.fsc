@@ -1,0 +1,64 @@
+// ChronoFei — all stopwatch state and behaviour are FeiSharp classes.
+using FeiSharp.UI;
+
+class timer {
+    private var nativeTimer = 0;
+
+    constructor(interval) {
+        this.nativeTimer = ui.createTimer(interval);
+    }
+
+    public function source() {
+        return this.nativeTimer;
+    }
+}
+
+function render(label) {
+    var seconds = math.floor(ui.get(label, "Tag") / 1000);
+    ui.set(label, "Text", seconds + " s (" + ui.get(label, "Tag") + " ms)");
+}
+
+function tick(sender, eventArgs) {
+    var display = ui.get(sender, "Tag");
+    ui.set(display, "Tag", ui.get(display, "Tag") + 10);
+    render(display);
+}
+
+function start(sender, eventArgs) {
+    ui.start(ui.get(sender, "Tag"));
+}
+
+function pause(sender, eventArgs) {
+    ui.stop(ui.get(sender, "Tag"));
+}
+
+function reset(sender, eventArgs) {
+    var timerSource = ui.get(sender, "Tag");
+    var display = ui.get(timerSource, "Tag");
+    ui.stop(timerSource);
+    ui.set(display, "Tag", 0);
+    render(display);
+}
+
+function main() {
+    var form = ui.createForm("ChronoFei", 720, 460);
+    ui.create(form, "Label", "ChronoFei", 285, 35, 197, 46);
+    var timeLabel = ui.create(form, "Label", "0.0 s", 220, 85, 215, 46);
+    var startButton = ui.create(form, "Button", "Start", 155, 215, 110, 38);
+    var pauseButton = ui.create(form, "Button", "Pause", 305, 215, 110, 38);
+    var resetButton = ui.create(form, "Button", "Reset", 455, 215, 110, 38);
+
+    var clock = timer(10);
+    ui.set(timeLabel, "Tag", 0);
+    ui.set(clock.source(), "Tag", timeLabel);
+    ui.set(startButton, "Tag", clock.source());
+    ui.set(pauseButton, "Tag", clock.source());
+    ui.set(resetButton, "Tag", clock.source());
+
+    ui.on(clock.source(), "Tick", "tick");
+    ui.on(startButton, "Click", "start");
+    ui.on(pauseButton, "Click", "pause");
+    ui.on(resetButton, "Click", "reset");
+
+    ui.show(form);
+}

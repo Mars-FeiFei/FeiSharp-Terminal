@@ -1,5 +1,3 @@
-import "tour_helpers.fsc";
-import "advanced.fsc";
 import Sample.LanguageTour;
 import Sample.Advanced;
 function showTitle(title) {

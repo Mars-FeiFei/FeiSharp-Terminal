@@ -568,25 +568,25 @@ printNl(isNull(null));
 ### 15.1 列表：方便追加内容
 
 ```feisharp
-var names = new List<string> { "小飞", "小明" };
-names.Add("小红");
+var names = new list<string> { "小飞", "小明" };
+names.add("小红");
 
 printNl(names[0]);
-printNl(names.Count);
+printNl(names.count);
 ```
 
 - `new` 表示新建；
 - `List` 表示列表；
 - `<string>` 表示其中准备保存文字，`string` 是“文字”类型的常用英文名；
-- `names.Add("小红")` 使用 `names` 的 `Add` 功能追加内容；
-- `names.Count` 是内容数量。
+- `names.add("小红")` 使用 `names` 的 `add` 功能追加内容；
+- `names.count` 是内容数量。
 
 “用点号找到的功能”通常叫作**方法**。它和函数很像，只是属于一个具体的东西。
 
 ### 15.2 字典：用一个内容查另一个内容
 
 ```feisharp
-var scores = new Dictionary<string, int> {
+var scores = new dictionary<string, int> {
     { "小飞", 92 },
     { "小明", 85 }
 };

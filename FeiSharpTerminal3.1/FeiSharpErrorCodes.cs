@@ -6,7 +6,13 @@ namespace FeiSharpTerminal3._1;
 /// </summary>
 internal static class FeiSharpErrorCodes
 {
+    internal const string UnexpectedToken = "FS2001";
+    internal const string ExpectedExpression = "FS2002";
+    internal const string InvalidSyntax = "FS2003";
     internal const string MissingDelimiter = "FS2004";
+    internal const string InvalidDeclaration = "FS2005";
+    internal const string InvalidControlFlow = "FS2006";
+    internal const string InvalidAssignment = "FS2007";
 
     internal const string UndefinedSymbol = "FS3004";
     internal const string InvalidArgument = "FS3005";

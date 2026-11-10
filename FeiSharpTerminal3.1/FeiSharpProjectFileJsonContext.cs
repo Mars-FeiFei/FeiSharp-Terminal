@@ -19,6 +19,20 @@ internal sealed class FeiSharpProjectFile
     public string? ProjectName { get; set; }
     [JsonPropertyName("dependencies")]
     public List<Dependency>? Dependencies { get; set; }
+    [JsonPropertyName("build_configuration")]
+    public string? BuildConfiguration { get; set; }
+    [JsonPropertyName("publish_mode")]
+    public string? PublishMode { get; set; }
+    [JsonPropertyName("single_file")]
+    public bool? PublishSingleFile { get; set; }
+    [JsonPropertyName("trimmed")]
+    public bool? PublishTrimmed { get; set; }
+    [JsonPropertyName("debug_symbols")]
+    public bool? DebugSymbols { get; set; }
+    [JsonPropertyName("invariant_globalization")]
+    public bool? InvariantGlobalization { get; set; }
+    [JsonPropertyName("output_path")]
+    public string? OutputPath { get; set; }
 }
 public class Dependency
 {

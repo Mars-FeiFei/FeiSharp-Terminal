@@ -41,6 +41,7 @@ namespace FeiSharpStudio
         public static readonly string _return = "return";
         public static readonly string getVarsFromJsonFilePath = "gvfj";
         public static readonly string readonlyclass = "class";
+        public static readonly string _event = "event";
         public static readonly string _this = "this";
         public static readonly string _base = "base";
         public static readonly string _private = "private";

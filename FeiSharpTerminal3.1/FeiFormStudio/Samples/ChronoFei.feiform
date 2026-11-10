@@ -1,0 +1,12 @@
+{
+  "Title": "ChronoFei — FeiSharp Stopwatch",
+  "Width": 720,
+  "Height": 460,
+  "Controls": [
+    { "Type": "Label", "Name": "titleLabel", "Text": "ChronoFei", "X": 285, "Y": 35, "Width": 180, "Height": 30 },
+    { "Type": "Label", "Name": "timeLabel", "Text": "00:00:00.00", "X": 220, "Y": 85, "Width": 290, "Height": 65 },
+    { "Type": "Button", "Name": "startButton", "Text": "开始", "X": 155, "Y": 215, "Width": 110, "Height": 38 },
+    { "Type": "Button", "Name": "pauseButton", "Text": "暂停", "X": 305, "Y": 215, "Width": 110, "Height": 38 },
+    { "Type": "Button", "Name": "resetButton", "Text": "复位", "X": 455, "Y": 215, "Width": 110, "Height": 38 }
+  ]
+}

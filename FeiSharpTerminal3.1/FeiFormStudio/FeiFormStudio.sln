@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.37614.0 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FeiFormStudio", "FeiFormStudio.csproj", "{E09BA2D6-C065-5020-DA42-FF9FA67BB6D8}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E09BA2D6-C065-5020-DA42-FF9FA67BB6D8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E09BA2D6-C065-5020-DA42-FF9FA67BB6D8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E09BA2D6-C065-5020-DA42-FF9FA67BB6D8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E09BA2D6-C065-5020-DA42-FF9FA67BB6D8}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {38BAA298-BEA9-46BF-BE40-86DC6B86D351}
+	EndGlobalSection
+EndGlobal

@@ -1,15 +1,18 @@
 using FeiSharpStudio;
 using FeiSharpTerminal3._1;
+using FeiSharpTerminal3._1.ExceptionThrow;
 using FeiSharpTerminal3._1.Tests;
 using Spectre.Console;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
+using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using TextCopy;
+using Exception = FeiSharpTerminal3._1.ExceptionThrow.Exception;
 namespace FeiSharp8._5RuntimeSdk;
 public class Program
 {
@@ -30,7 +33,48 @@ public class Program
     }
     static string[] SplitCommandArguments(string command)
     {
-        return command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var arguments = new List<string>();
+        var current = new StringBuilder();
+        char? quote = null;
+        for (int index = 0; index < command.Length; index++)
+        {
+            char character = command[index];
+            if (quote != null)
+            {
+                if (character == quote)
+                {
+                    quote = null;
+                }
+                else if (character == '\\' && index + 1 < command.Length && command[index + 1] == quote)
+                {
+                    current.Append(command[++index]);
+                }
+                else
+                {
+                    current.Append(character);
+                }
+                continue;
+            }
+            if (character is '"' or '\'')
+            {
+                quote = character;
+            }
+            else if (char.IsWhiteSpace(character))
+            {
+                if (current.Length > 0)
+                {
+                    arguments.Add(current.ToString());
+                    current.Clear();
+                }
+            }
+            else
+            {
+                current.Append(character);
+            }
+        }
+        if (quote != null) throw new ArgumentException("Unterminated quoted argument.");
+        if (current.Length > 0) arguments.Add(current.ToString());
+        return arguments.ToArray();
     }
     private static readonly HashSet<string> SyntaxKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -48,6 +92,7 @@ public class Program
         ("clear", "Clear the terminal (alias for cls)"),
         ("cls", "Clear the terminal"),
         ("color", "Choose the terminal text color"),
+        ("copyboard", "Control copyboard by command"),
         ("copyright", "Show copyright information"),
         ("create", "Create a new FeiSharp project"),
         ("credits", "Show acknowledgements"),
@@ -57,6 +102,8 @@ public class Program
         ("explorer", "Open a folder in Windows Explorer"),
         ("feedback", "Send feedback to the FeiSharp team"),
         ("file", "Run a FeiSharp source file or project"),
+        ("generate", "Generate a FeiSharp code snippet from a description"),
+        ("gen", "Generate a FeiSharp code snippet from a description"),
         ("help", "Open command help"),
         ("license", "Show license information"),
         ("open", "Open a folder in Visual Studio Code"),
@@ -217,13 +264,12 @@ public class Program
             : elapsed.TotalMinutes >= 1
                 ? $"{elapsed.Minutes}m {elapsed.Seconds}s"
                 : $"{Math.Max(0, elapsed.Seconds)}s";
-        string label = $"─ Ran for {duration} ";
-        int trailingLineLength = Math.Max(0, Console.WindowWidth - label.Length - 1);
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.Write(label);
-        Console.ForegroundColor = ConsoleColor.Blue;
-        Console.WriteLine(new string('─', trailingLineLength));
-        Console.ResetColor();
+        duration += $"({elapsed.TotalMilliseconds}ms)";
+        AnsiConsole.Write(new Rule($"[white]Ran for[/] [yellow]{duration}[/]")
+        {
+            Justification = Justify.Left,
+            Style = Style.Parse("blue")
+        });
     }
 
     private static void RenderCommandMenu(List<(string Name, string Description)> matches, int selectedIndex, int firstVisible, int menuTop, int width)
@@ -248,6 +294,58 @@ public class Program
             Console.Write(description.PadRight(descriptionWidth));
             Console.ResetColor();
         }
+    }
+    static void AskAndCopy(string code)
+    {
+        var choice = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title(code != ""  ? "[bold cyan]Do you want to copy the code to the clipboard?[/]" : "[bold cyan]Do you want to clear the copyboard?[/]")
+                .AddChoices("Copy", "Don't copy"));
+
+        if (choice == "Copy")
+        {
+            try
+            {
+                ClipboardService.SetText(code);
+                AnsiConsole.MarkupLine("[green]✓ Code copied to clipboard.[/]");
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[red]✗ Failed to copy:[/] {Markup.Escape(ex.Message)}");
+            }
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[dim]Skipped copying.[/]");
+        }
+    }
+    private static void PrintGeneratedCode(string request)
+    {
+        string generatedCode = FeiSharpCodeAssistant.Generate(request, out string templateName);
+        CodeHighlighter.PrintHighlightedCode(generatedCode);
+        AskAndCopy(generatedCode);
+    }
+
+    private static void RunCodeGenerationSession()
+    {
+        AnsiConsole.MarkupLine("[cyan]FeiSharp code generation session started.[/]");
+        AnsiConsole.MarkupLine("[grey]Enter a description for each snippet. Press Enter on an empty line, or type 'exit', to finish.[/]");
+
+        while (true)
+        {
+            AnsiConsole.Markup("[yellow]generate>[/] ");
+            string? request = Console.ReadLine();
+            if (request == null || string.IsNullOrWhiteSpace(request) ||
+                request.Equals("exit", StringComparison.OrdinalIgnoreCase) ||
+                request.Equals("quit", StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+
+            PrintGeneratedCode(request);
+        }
+
+        AnsiConsole.MarkupLine("[grey]Code generation session ended.[/]");
     }
 
     private static string? ReadCommandInput(string placeholder)
@@ -370,20 +468,20 @@ public class Program
         {
             return GetUserCodeFromRedirectedInput();
         }
-
-        EnsureCodeEditorViewport();
         var code = new StringBuilder();
         int cursor = 0;
         int editorTop = Console.CursorTop;
         int renderedEditorRows = 0;
         int outputTop = editorTop;
+        EnsureCodeEditorViewport(8, ref editorTop, renderedEditorRows);
         while (true)
         {
             if (ExecutionCancellation.IsCancellationRequested)
             {
                 return "";
             }
-
+            int codeLineCount = code.ToString().Count(character => character == '\n') + 1;
+            EnsureCodeEditorViewport(7 + codeLineCount, ref editorTop, renderedEditorRows);
             RenderCodeEditor(code.ToString(), cursor, editorTop, ref renderedEditorRows, out outputTop);
             ConsoleKeyInfo key;
             try
@@ -465,13 +563,22 @@ public class Program
         }
     }
 
-    private static void EnsureCodeEditorViewport()
+    private static void EnsureCodeEditorViewport(int requiredRows, ref int editorTop, int renderedRows)
     {
-        const int InitialEditorRows = 7;
-        int firstUnsafeRow = Console.WindowTop + Console.WindowHeight - 1;
-        if (Console.CursorTop + InitialEditorRows > firstUnsafeRow)
+        if (Console.IsInputRedirected || Console.IsOutputRedirected)
         {
-            MoveToSafeViewportRow(InitialEditorRows);
+            return;
+        }
+
+        int firstUnsafeRow = Console.WindowTop + Console.WindowHeight - 1;
+        if (editorTop + requiredRows > firstUnsafeRow)
+        {
+            if (renderedRows > 0)
+            {
+                ClearCodeEditorArea(editorTop, renderedRows);
+            }
+            MoveToSafeViewportRow(requiredRows);
+            editorTop = Console.CursorTop;
         }
     }
 
@@ -705,11 +812,18 @@ public class Program
         {
         }
     }
-    static string? platform = "win-x64";
-    static List<Dependency>? depen = new();
-    static bool? isCleanBuildDirectory = false;
-    static bool? isTrimmedByDotnet = false;
-    static bool? isOnlyCopyExecutable = false;
+    static FeiSharpProjectFile? ReadProjectFile(string inputPath)
+    {
+        string fullInputPath = Path.GetFullPath(inputPath.Trim().Trim('"'));
+        if (!File.Exists(fullInputPath) ||
+            !string.Equals(Path.GetExtension(fullInputPath), ".feiproj", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+        return JsonSerializer.Deserialize(
+            File.ReadAllText(fullInputPath),
+            FeiSharpJsonSerializerContext.Default.FeiSharpProjectFile);
+    }
     static string? ResolveFeiSharpSourcePath(string inputPath)
     {
         if (string.IsNullOrWhiteSpace(inputPath))
@@ -725,18 +839,11 @@ public class Program
         {
             return fullInputPath;
         }
-        FeiSharpProjectFile? projectFile = JsonSerializer.Deserialize(
-            File.ReadAllText(fullInputPath),
-            FeiSharpJsonSerializerContext.Default.FeiSharpProjectFile);
+        FeiSharpProjectFile? projectFile = ReadProjectFile(fullInputPath);
         if (string.IsNullOrWhiteSpace(projectFile?.ProjectMainFile))
         {
             return null;
         }
-        platform = !string.IsNullOrEmpty(projectFile.TargetPlatform) ? projectFile.TargetPlatform : platform;
-        depen = projectFile.Dependencies ?? depen;
-        isCleanBuildDirectory = projectFile.IsCleanBuildDirectory ?? false;
-        isTrimmedByDotnet = projectFile.IsTrimmedByDotnet ?? false;
-        isOnlyCopyExecutable = projectFile.IsOnlyCopyExecutable ?? false;
         FeiSharpProgramData.main_function_run = projectFile.IsMainFunctionRun ?? FeiSharpProgramData.main_function_run;
         string? mainFile = projectFile.ProjectMainFile;
         if (string.IsNullOrWhiteSpace(mainFile))
@@ -935,25 +1042,33 @@ public class Program
     {
         return s.Replace("\\", "\\\\").Replace("\"", "\\\"");
     }
-    static string GetWindowsRuntimeIdentifier()
-    {
-        return RuntimeInformation.OSArchitecture switch
-        {
-            Architecture.Arm64 => "win-arm64",
-            Architecture.X86 => "win-x86",
-            _ => "win-x64"
-        };
-    }
-    static bool TryBuildExecutable(string inputPath, string? requestedOutputPath, out string outputExePath, out string errorMessage)
+    static bool TryBuildExecutable(BuildCommandOptions commandOptions, out string outputExePath, out string errorMessage)
     {
         outputExePath = string.Empty;
         errorMessage = string.Empty;
-        string? sourcePath = ProProcesser(ResolveFeiSharpSourcePath(inputPath));
-        if (sourcePath == null)
+        FeiSharpProjectFile? projectFile;
+        try
+        {
+            projectFile = ReadProjectFile(commandOptions.InputPath);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Invalid project file: {ex.Message}";
+            return false;
+        }
+        EffectiveBuildOptions buildOptions = EffectiveBuildOptions.Create(commandOptions, projectFile);
+        if (!buildOptions.CopyAllArtifacts && buildOptions.PublishMode != BuildPublishMode.NativeAot && !buildOptions.SingleFile)
+        {
+            errorMessage = "--executable-only requires AOT or --single-file; this publish mode needs supporting files.";
+            return false;
+        }
+        string? resolvedSourcePath = ResolveFeiSharpSourcePath(commandOptions.InputPath);
+        if (resolvedSourcePath == null)
         {
             errorMessage = "The source file or project file could not be found.";
             return false;
         }
+        string sourcePath = ProProcesser(resolvedSourcePath);
         string runtimeAssemblyPath;
         try
         {
@@ -964,14 +1079,22 @@ public class Program
             errorMessage = ex.Message;
             return false;
         }
-        outputExePath = ResolveBuildOutputPath(inputPath, sourcePath, requestedOutputPath);
+        string? requestedOutputPath = commandOptions.OutputPath;
+        if (string.IsNullOrWhiteSpace(requestedOutputPath) && !string.IsNullOrWhiteSpace(projectFile?.OutputPath))
+        {
+            string projectDirectory = Path.GetDirectoryName(Path.GetFullPath(commandOptions.InputPath))
+                ?? Directory.GetCurrentDirectory();
+            bool isDirectoryPath = projectFile.OutputPath.EndsWith('/') || projectFile.OutputPath.EndsWith('\\');
+            requestedOutputPath = Path.GetFullPath(Path.Combine(projectDirectory, projectFile.OutputPath));
+            if (isDirectoryPath) requestedOutputPath += Path.DirectorySeparatorChar;
+        }
+        outputExePath = ResolveBuildOutputPath(commandOptions.InputPath, sourcePath, requestedOutputPath);
         Directory.CreateDirectory(Path.GetDirectoryName(outputExePath) ?? Directory.GetCurrentDirectory());
         string previousApplicationPath = _applicationPath;
         string tempRoot = Path.Combine(Path.GetTempPath(), "FeiSharpBuild", Guid.NewGuid().ToString("N"));
         string tempProjectPath = Path.Combine(tempRoot, "GeneratedLauncher.csproj");
         string tempProgramPath = Path.Combine(tempRoot, "Program.cs");
         string tempBuildDirectory = Path.Combine(tempRoot, "build");
-        string tempPublishDirectory = Path.Combine(tempRoot, "publish");
         string assemblyName = Path.GetFileNameWithoutExtension(outputExePath);
         string base64Source;
         try
@@ -995,7 +1118,6 @@ public class Program
             Directory.CreateDirectory(tempRoot);
             string escapedAssemblyName = System.Security.SecurityElement.Escape(assemblyName) ?? assemblyName;
             string escapedRuntimeAssemblyPath = System.Security.SecurityElement.Escape(runtimeAssemblyPath) ?? runtimeAssemblyPath;
-            string runtimeIdentifier = GetWindowsRuntimeIdentifier();
             File.WriteAllText(tempProjectPath, $$"""
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -1006,7 +1128,6 @@ public class Program
     <AssemblyName>{{escapedAssemblyName}}</AssemblyName>
     <UseAppHost>true</UseAppHost>
     <SelfContained>false</SelfContained>
-    <RuntimeIdentifier>{{runtimeIdentifier}}</RuntimeIdentifier>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
@@ -1024,16 +1145,19 @@ using System.Text;
 using FeiSharp8._5RuntimeSdk;
 using FeiSharpTerminal3._1;
 class Program{
-    static string FEISHARP_IMPORT_PATH = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FeiSharpImportFiles");
+    static string FEISHARP_IMPORT_PATH = Environment.GetEnvironmentVariable("FEISHARP_IMPORT_PATH")
+        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FeiSharpImportFiles");
     static void Main(string[] args)
     {
-        Console.OutputEncoding = Encoding.Unicode;
-        Console.InputEncoding = Encoding.Unicode;
+        // Keep the DAP transport UTF-8; UTF-16 produces NUL/mojibake in VS Code.
+        Console.OutputEncoding = DebugProtocol.IsEnabled ? new UTF8Encoding(false) : Encoding.Unicode;
+        Console.InputEncoding = DebugProtocol.IsEnabled ? new UTF8Encoding(false) : Encoding.Unicode;
         ExecutionCancellation.Initialize();
         FeiSharpProgramData.AssemblyName = Guid.NewGuid().ToString("N");
         FeiSharp8._5RuntimeSdk.Program._applicationPath = AppContext.BaseDirectory;
         var sourceCode = Encoding.UTF8.GetString(Convert.FromBase64String("{{base64Source}}"));
-if (Environment.GetEnvironmentVariable("FEISHARP_IMPORT_PATH", EnvironmentVariableTarget.User) == null)
+if (Environment.GetEnvironmentVariable("FEISHARP_IMPORT_PATH") == null &&
+    Environment.GetEnvironmentVariable("FEISHARP_IMPORT_PATH", EnvironmentVariableTarget.User) == null)
     Environment.SetEnvironmentVariable("FEISHARP_IMPORT_PATH", FEISHARP_IMPORT_PATH, EnvironmentVariableTarget.User);
 Directory.CreateDirectory(FEISHARP_IMPORT_PATH);
 if (!File.Exists(Path.Combine(FEISHARP_IMPORT_PATH, "$prelude.fsc")))
@@ -1052,8 +1176,13 @@ if (!File.Exists(Path.Combine(FEISHARP_IMPORT_PATH, "$prelude.fsc")))
 
 """);
             string[] args = [];
-            foreach (var item in depen)
+            foreach (var item in projectFile?.Dependencies ?? [])
             {
+                if (string.IsNullOrWhiteSpace(item.Name) || string.IsNullOrWhiteSpace(item.SrcUrl))
+                {
+                    errorMessage = "Every dependency requires both name and src_url.";
+                    return false;
+                }
                 using (Process process = new Process())
                 {
                     process.StartInfo.FileName = "fpm.exe";
@@ -1076,30 +1205,44 @@ if (!File.Exists(Path.Combine(FEISHARP_IMPORT_PATH, "$prelude.fsc")))
                 process.Start();
                 process.WaitForExit();
             }
-            if ((bool)isCleanBuildDirectory && Directory.Exists(Path.GetDirectoryName(outputExePath)))
+            string outputDirectory = Path.GetDirectoryName(outputExePath) ?? Directory.GetCurrentDirectory();
+            if (buildOptions.Clean && Directory.Exists(outputDirectory))
             {
-                foreach (var item in Directory.GetFiles(Path.GetDirectoryName(outputExePath)))
+                string sourceDirectory = Path.GetDirectoryName(sourcePath) ?? Directory.GetCurrentDirectory();
+                if (Path.GetFullPath(outputDirectory).Equals(Path.GetFullPath(sourceDirectory), StringComparison.OrdinalIgnoreCase))
                 {
-                    File.Delete(item);
+                    errorMessage = "Refusing to clean the source directory. Choose a separate --output directory or use --no-clean.";
+                    return false;
                 }
-            }
-            string argument = $"publish -c Release -r {platform} -p:PublishAot=true -p:OptimizationPreference=Size -p:DebugType=none -p:InvariantGlobalization=true -o " + tempBuildDirectory;
-            if ((bool)isTrimmedByDotnet)
-            {
-                AnsiConsole.MarkupLine("[yellow]Warning: Use trimmed_by_dotnet must ensure the target machine has installed .NET 8.0[/]");
-                argument = $"build -c Release -r {platform} -p:PublishSingleFile=true -p:OutputPath={tempBuildDirectory}";
+                foreach (var item in Directory.GetFiles(outputDirectory)) File.Delete(item);
             }
             var buildProcess = new Process();
             buildProcess.StartInfo = new ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = argument,
                 WorkingDirectory = tempRoot,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            buildProcess.StartInfo.ArgumentList.Add("publish");
+            buildProcess.StartInfo.ArgumentList.Add("-c");
+            buildProcess.StartInfo.ArgumentList.Add(buildOptions.Configuration);
+            buildProcess.StartInfo.ArgumentList.Add("-r");
+            buildProcess.StartInfo.ArgumentList.Add(buildOptions.RuntimeIdentifier);
+            buildProcess.StartInfo.ArgumentList.Add("-o");
+            buildProcess.StartInfo.ArgumentList.Add(tempBuildDirectory);
+            buildProcess.StartInfo.ArgumentList.Add($"-p:PublishAot={buildOptions.PublishMode == BuildPublishMode.NativeAot}");
+            buildProcess.StartInfo.ArgumentList.Add($"-p:SelfContained={buildOptions.PublishMode != BuildPublishMode.FrameworkDependent}");
+            buildProcess.StartInfo.ArgumentList.Add($"-p:PublishSingleFile={buildOptions.SingleFile}");
+            if (buildOptions.PublishMode != BuildPublishMode.NativeAot)
+                buildProcess.StartInfo.ArgumentList.Add($"-p:PublishTrimmed={buildOptions.Trimmed}");
+            buildProcess.StartInfo.ArgumentList.Add($"-p:InvariantGlobalization={buildOptions.InvariantGlobalization}");
+            buildProcess.StartInfo.ArgumentList.Add($"-p:DebugSymbols={buildOptions.DebugSymbols}");
+            buildProcess.StartInfo.ArgumentList.Add($"-p:DebugType={(buildOptions.DebugSymbols ? "portable" : "none")}");
+            if (buildOptions.PublishMode == BuildPublishMode.NativeAot)
+                buildProcess.StartInfo.ArgumentList.Add("-p:OptimizationPreference=Size");
 
             buildProcess.Start();
             string buildStandardOutput = buildProcess.StandardOutput.ReadToEnd();
@@ -1110,18 +1253,14 @@ if (!File.Exists(Path.Combine(FEISHARP_IMPORT_PATH, "$prelude.fsc")))
                 errorMessage = string.IsNullOrWhiteSpace(buildStandardError) ? buildStandardOutput : buildStandardError;
                 return false;
             }
-            string publishedExePath = Path.Combine(tempBuildDirectory, assemblyName + ".exe");
+            string appHostExtension = buildOptions.RuntimeIdentifier.StartsWith("win-", StringComparison.OrdinalIgnoreCase) ? ".exe" : string.Empty;
+            string publishedExePath = Path.Combine(tempBuildDirectory, assemblyName + appHostExtension);
             if (!File.Exists(publishedExePath))
             {
                 errorMessage = $"Build succeeded, but the generated exe was not found at {publishedExePath}.";
                 return false;
             }
-            if ((bool)isOnlyCopyExecutable && (bool)isTrimmedByDotnet)
-            {
-                errorMessage = $"trimmed_by_dotnet and only_copy_executable cannot both be true";
-                return false;
-            }
-            if ((bool)isOnlyCopyExecutable)
+            if (!buildOptions.CopyAllArtifacts)
             {
                 File.Copy(publishedExePath, outputExePath, true);
                 return true;
@@ -1152,9 +1291,36 @@ if (!File.Exists(Path.Combine(FEISHARP_IMPORT_PATH, "$prelude.fsc")))
         }
     }
 
+    static void ShowBuildUsage()
+    {
+        AnsiConsole.MarkupLine("[cyan]Usage:[/] feisharp build <source.fsc|project.feiproj> [[options]]");
+        AnsiConsole.MarkupLine("  [yellow]-o, --output <path>[/]       Output executable path or directory");
+        AnsiConsole.MarkupLine("  [yellow]-c, --configuration <name>[/] Debug or Release");
+        AnsiConsole.MarkupLine("  [yellow]-r, --runtime <rid>[/]       Runtime identifier, for example win-x64");
+        AnsiConsole.MarkupLine("  [yellow]--mode <mode>[/]             aot, self-contained, or framework-dependent");
+        AnsiConsole.MarkupLine("  [yellow]--single-file|--no-single-file[/]");
+        AnsiConsole.MarkupLine("  [yellow]--trim|--no-trim[/]          Enable or disable assembly trimming");
+        AnsiConsole.MarkupLine("  [yellow]--debug-symbols|--no-debug-symbols[/]");
+        AnsiConsole.MarkupLine("  [yellow]--full-globalization|--invariant-globalization[/]");
+        AnsiConsole.MarkupLine("  [yellow]--clean|--no-clean[/]        Clean the output directory first");
+        AnsiConsole.MarkupLine("  [yellow]--artifacts|--executable-only[/]");
+        AnsiConsole.MarkupLine("  [yellow]--run[/]                     Run after a successful build");
+    }
+
     public static async Task Main(string[] args)
     {
         #region <head></head>
+        if (args.Length >= 3 && string.Equals(args[0], "--debug-protocol", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!int.TryParse(args[1], out int debugPort))
+            {
+                Console.Error.WriteLine("Invalid FeiSharp debug protocol port.");
+                return;
+            }
+            string debugSource = Path.GetFullPath(args[2]);
+            DebugProtocol.Initialize(debugPort, debugSource);
+            args = [debugSource];
+        }
         Console.OutputEncoding = Encoding.Unicode;
         Console.InputEncoding = Encoding.Unicode;
         ExecutionCancellation.Initialize();
@@ -1169,7 +1335,8 @@ if (!File.Exists(Path.Combine(FEISHARP_IMPORT_PATH, "$prelude.fsc")))
         if (!Path.GetFullPath(baseKeywordPath).Equals(typeof(BaseKeyword).Assembly.Location, StringComparison.OrdinalIgnoreCase))
             File.Copy(typeof(BaseKeyword).Assembly.Location, baseKeywordPath, overwrite: true);
         ExtensionKeywordRegistry.Load(FEISHARP_IMPORT_PATH);
-        if (Environment.GetEnvironmentVariable("FEISHARP_IMPORT_PATH", EnvironmentVariableTarget.User) == null)
+        if (Environment.GetEnvironmentVariable("FEISHARP_IMPORT_PATH") == null &&
+            Environment.GetEnvironmentVariable("FEISHARP_IMPORT_PATH", EnvironmentVariableTarget.User) == null)
             Environment.SetEnvironmentVariable("FEISHARP_IMPORT_PATH", FEISHARP_IMPORT_PATH, EnvironmentVariableTarget.User);
         Directory.CreateDirectory(FEISHARP_IMPORT_PATH);
         if (!File.Exists(Path.Combine(FEISHARP_IMPORT_PATH, "prelude.fsc")))
@@ -1209,6 +1376,8 @@ if (!File.Exists(Path.Combine(FEISHARP_IMPORT_PATH, "$prelude.fsc")))
         TryConfigureConsole(() => Console.Title = dynamicTitle);
 
 
+        if (!DebugProtocol.IsEnabled)
+        {
         AnsiConsole.Write(
             new FigletText("FEI# Target SDK 11.0")
                 .Color(Color.Cyan1));
@@ -1230,31 +1399,37 @@ if (!File.Exists(Path.Combine(FEISHARP_IMPORT_PATH, "$prelude.fsc")))
 
         AnsiConsole.Write(infoPanel);
         AnsiConsole.WriteLine();
+        }
 
         #endregion
 
-        if (args.Length > 0 && string.Equals(args[0], "--build", StringComparison.OrdinalIgnoreCase))
+        if (args.Length > 0 &&
+            (string.Equals(args[0], "--build", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(args[0], "build", StringComparison.OrdinalIgnoreCase)))
         {
-            if (args.Length < 2)
+            if (args.Length == 1 || (args.Length == 2 && args[1] is "--help" or "-h"))
             {
-                var usagePanel = new Panel("[red]Usage: feisharp build <source.fsc|project.feiproj> [[output.exe]][/]")
-                    .Border(BoxBorder.Rounded)
-                    .BorderStyle(Style.Parse("red"));
-                AnsiConsole.Write(usagePanel);
+                ShowBuildUsage();
                 return;
             }
 
-            string? outputArg = "out\\feisharp-sdk-11.0-release\\" + (args.Length > 2 ? args[2] : null);
+            if (!BuildCommandOptions.TryParse(args.Skip(1).ToArray(), out BuildCommandOptions? buildOptions, out string optionError))
+            {
+                AnsiConsole.MarkupLine($"[red]Build option error:[/] {optionError.EscapeMarkup()}");
+                ShowBuildUsage();
+                return;
+            }
             await AnsiConsole.Status()
                 .StartAsync("[yellow]Building executable...[/]", async ctx =>
                 {
-                    if (TryBuildExecutable(args[1], outputArg, out string builtExePath, out string buildError))
+                    if (TryBuildExecutable(buildOptions!, out string builtExePath, out string buildError))
                     {
                         var successPanel = new Panel($"[green]✓ Build completed:[/] [yellow]{builtExePath}[/]")
                             .Border(BoxBorder.Rounded)
                             .BorderStyle(Style.Parse("green"));
                         AnsiConsole.Write(successPanel);
-                        Process.Start(builtExePath);
+                        if (buildOptions!.RunAfterBuild)
+                            Process.Start(new ProcessStartInfo(builtExePath) { UseShellExecute = true });
                     }
                     else
                     {
@@ -1408,13 +1583,15 @@ Thumbs.db
             global::System.String sourceCode = File.ReadAllText(sourcePath);
             _applicationPath = sourcePath;
             RunFeiSharpCodeWithProProcesser(sourceCode, args.Skip(1).ToArray());
-            AnsiConsole.Markup("[grey]Press any key to continue...[/]");
-            Console.ReadKey(true);
+            if (!DebugProtocol.IsEnabled)
+            {
+                AnsiConsole.Markup("[grey]Press any key to continue...[/]");
+                Console.ReadKey(true);
+            }
             _applicationPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             return;
         }
         FeiSharpProgramData.main_function_run = true;
-        Console.Clear();
         while (true)
         {
             try
@@ -1542,18 +1719,60 @@ Thumbs.db
                 {
                     ChangeDynamicTitle(EDT_CDE);
                     AnsiConsole.MarkupLine("[cyan]>>>[/] [yellow]Input your code... Enter 'exit' to exit this mode...[/]");
-                    var rule1 = new Rule("[yellow]Code Input Mode[/]")
-                    {
-                        Style = Style.Parse("green"),
-                        Justification = Justify.Center
-                    };
-                    AnsiConsole.Write(rule1);
                     string code = GetUserCode();
                     var runTimer = Stopwatch.StartNew();
                     _parser = RunFeiSharpCodeWithProProcesser(code, commandParts.Skip(1).ToArray(), _parser);
                     runTimer.Stop();
                     WriteRunDuration(runTimer.Elapsed);
                     ChangeDynamicTitle(IN_CMD);
+                }
+                else if (command.StartsWith("copyboard"))
+                {
+                    string[] copyboardArguments = [.. commandParts.Skip(1)];
+                    if (copyboardArguments.Length == 0) {
+                        AnsiConsole.MarkupLine("[red]/copyboard command needs[/] [yellow]1 argument[/] [red]at least[/]");
+                        continue;
+                    }
+                    if (copyboardArguments[0] == "--clear" && copyboardArguments.Length == 1)
+                    {
+                        AskAndCopy("");
+                    }
+                    else
+                    {
+                        AskAndCopy(string.Join(' ', copyboardArguments));
+                    }
+                }
+                else if (command == "generate" || command.StartsWith("generate ") ||
+                         command == "gen" || command.StartsWith("gen "))
+                {
+                    string[] generationArguments = [.. commandParts.Skip(1)];
+                    bool continuous = generationArguments.Any(argument =>
+                        argument.Equals("--continue", StringComparison.OrdinalIgnoreCase) ||
+                        argument.Equals("--interactive", StringComparison.OrdinalIgnoreCase));
+                    string request = string.Join(" ", generationArguments.Where(argument =>
+                        !argument.Equals("--continue", StringComparison.OrdinalIgnoreCase) &&
+                        !argument.Equals("--interactive", StringComparison.OrdinalIgnoreCase)));
+
+                    if (continuous || string.IsNullOrWhiteSpace(request))
+                    {
+                        RunCodeGenerationSession();
+                    }
+                    else
+                    {
+                        string[] requests = generationArguments.Where(argument =>
+                                !argument.Equals("--continue", StringComparison.OrdinalIgnoreCase) &&
+                                !argument.Equals("--interactive", StringComparison.OrdinalIgnoreCase))
+                            .ToArray();
+                        IEnumerable<string> generatedRequests = requests.Length > 1 &&
+                            requests.All(FeiSharpCodeAssistant.IsStandaloneRequest)
+                            ? requests
+                            : [string.Join(" ", requests)];
+
+                        foreach (string generationRequest in generatedRequests)
+                        {
+                            PrintGeneratedCode(generationRequest);
+                        }
+                    }
                 }
                 else if (command == "file")
                 {
@@ -1587,7 +1806,10 @@ Thumbs.db
                 }
                 else if (command == "build" || command.StartsWith("build "))
                 {
-                    string sourceInput = command.Length > 5 ? command[5..].Trim() : string.Empty;
+                    string[] replBuildArguments = command.Length > 5
+                        ? SplitCommandArguments(command[5..].Trim())
+                        : [];
+                    string sourceInput = replBuildArguments.FirstOrDefault() ?? string.Empty;
                     List<string> feiprojs = [];
                     if (string.IsNullOrWhiteSpace(sourceInput))
                     {
@@ -1617,13 +1839,19 @@ Thumbs.db
                             AnsiConsole.Markup("[cyan]Source Path: [/]");
                             sourceInput = Console.ReadLine() ?? string.Empty;
                         }
+                        replBuildArguments = [sourceInput];
                     }
-                    string? outputInput = "out\\feisharp-sdk-11.0-release\\" + Path.GetFileNameWithoutExtension(sourceInput) + ".exe";
+                    if (!BuildCommandOptions.TryParse(replBuildArguments, out BuildCommandOptions? replBuildOptions, out string replOptionError))
+                    {
+                        AnsiConsole.MarkupLine($"[red]Build option error:[/] {replOptionError.EscapeMarkup()}");
+                        ShowBuildUsage();
+                        continue;
+                    }
                     await AnsiConsole.Status()
                         .StartAsync("[yellow]Building executable...[/]", async ctx =>
                         {
                             ChangeDynamicTitle("Generate Native Code");
-                            if (TryBuildExecutable(sourceInput, outputInput, out string builtExePath, out string buildError))
+                            if (TryBuildExecutable(replBuildOptions!, out string builtExePath, out string buildError))
                             {
                                 var successPanel = new Panel($"[green]✓ Build completed:[/] [yellow]{builtExePath}[/]")
                                     .Border(BoxBorder.Rounded)
@@ -1989,7 +2217,7 @@ Thumbs.db
                     }
                     command = command[1..];
                     bool result = true, r = true;
-                    foreach(var item in FeiSharpKeywords.KeywordMap.Keys)
+                    foreach (var item in FeiSharpKeywords.KeywordMap.Keys)
                     {
                         if (command.StartsWith(item))
                         {
@@ -2056,12 +2284,80 @@ Thumbs.db
     public static string ProProcesser(string scode)
     {
         var loadedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var sharedNamespaceContents = new StringBuilder();
         if (File.Exists(_applicationPath))
-            loadedFiles.Add(Path.GetFullPath(_applicationPath));
-        return PreprocessSource(scode, _applicationPath, loadedFiles, true);
+        {
+            string applicationPath = Path.GetFullPath(_applicationPath);
+            loadedFiles.Add(applicationPath);
+            sharedNamespaceContents.Append(ExpandSiblingNamespaceFiles(applicationPath, loadedFiles));
+        }
+        sharedNamespaceContents.Append(PreprocessSource(scode, _applicationPath, loadedFiles, true, true));
+        return sharedNamespaceContents.ToString();
     }
 
-    private static string PreprocessSource(string scode, string sourcePath, HashSet<string> loadedFiles, bool runMain)
+    private static string ExpandSiblingNamespaceFiles(string applicationPath, HashSet<string> loadedFiles)
+    {
+        if (!string.Equals(Path.GetExtension(applicationPath), ".fsc", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        string? sourceDirectory = Path.GetDirectoryName(applicationPath);
+        if (string.IsNullOrEmpty(sourceDirectory) || !Directory.Exists(sourceDirectory))
+        {
+            return string.Empty;
+        }
+
+        var sharedContents = new StringBuilder();
+        IEnumerable<string> siblingFiles = Directory.EnumerateFiles(sourceDirectory)
+            .Where(path => string.Equals(Path.GetExtension(path), ".fsc", StringComparison.OrdinalIgnoreCase))
+            .Select(Path.GetFullPath)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase);
+
+        foreach (string siblingPath in siblingFiles)
+        {
+            if (loadedFiles.Contains(siblingPath))
+            {
+                continue;
+            }
+
+            string siblingSource = File.ReadAllText(siblingPath);
+            if (!DeclaresNamedNamespace(siblingSource) || !loadedFiles.Add(siblingPath))
+            {
+                continue;
+            }
+
+            string content = PreprocessSource(siblingSource, siblingPath, loadedFiles, false);
+            sharedContents.Append("namespace {\n").Append(content).AppendLine("\n}");
+        }
+
+        return sharedContents.ToString();
+    }
+
+    private static bool DeclaresNamedNamespace(string source)
+    {
+        string code = RemoveCommentsSafe(source);
+        var lexer = new Lexer(code);
+        Token token;
+        do
+        {
+            token = lexer.NextToken();
+            if (token.Type != TokenTypes.Keyword || token.Value != TokenKeywords._namespace)
+            {
+                continue;
+            }
+
+            Token next = lexer.NextToken();
+            if (next.Type == TokenTypes.Identifier || next.Type == TokenTypes.Keyword)
+            {
+                return true;
+            }
+        } while (token.Type != TokenTypes.EndOfFile);
+
+        return false;
+    }
+
+    private static string PreprocessSource(string scode, string sourcePath, HashSet<string> loadedFiles, bool runMain, bool markMain = false)
     {
         scode = TransformCode(RemoveCommentsSafe(scode));
         if (runMain && scode.Contains("function main(") && FeiSharpProgramData.main_function_run)
@@ -2071,10 +2367,10 @@ Thumbs.db
             AnsiConsole.MarkupLine("[yellow]And we don't suggest you to write another code in the outside of 'main' function[/]");
             scode += "main();";
         }
-        return ExpandImports(scode, sourcePath, loadedFiles);
+        return ExpandImports(scode, sourcePath, loadedFiles, markMain);
     }
 
-    private static string ExpandImports(string scode, string sourcePath, HashSet<string> loadedFiles)
+    private static string ExpandImports(string scode, string sourcePath, HashSet<string> loadedFiles, bool markMain = false)
     {
         if (string.IsNullOrWhiteSpace(scode))
         {
@@ -2111,9 +2407,13 @@ Thumbs.db
 
         if (importedContents.Length == 0)
         {
-            return result;
+            return markMain ? "var __feisharp_main_source_marker__ = 0;\n" + result : result;
         }
 
+        if (markMain)
+        {
+            importedContents.AppendLine("var __feisharp_main_source_marker__ = 0;");
+        }
         importedContents.Append(result);
         return importedContents.ToString();
     }
@@ -2155,6 +2455,12 @@ Thumbs.db
             {
                 sourceCode = "var args = [];\n" + sourceCode;
             }
+            const string debugSourceMarker = "var __feisharp_main_source_marker__ = 0;";
+            int markerIndex = sourceCode.IndexOf(debugSourceMarker, StringComparison.Ordinal);
+            int sourceOffset = markerIndex >= 0
+                ? sourceCode[..markerIndex].Count(character => character == '\n') + 1
+                : 1 + default_functions.Count(character => character == '\n');
+            DebugProtocol.SetSourceLineOffset(sourceOffset);
             if (ExecutionCancellation.IsCancellationRequested)
             {
                 AnsiConsole.MarkupLine("[yellow]Execution cancelled during preprocessing[/]");
@@ -2202,10 +2508,7 @@ Thumbs.db
             {
                 if (!ExecutionCancellation.IsCancellationRequested)
                 {
-                    var errorPanel = new Panel($"[red]{ex.ErrorType}: {ex.Number}[/]\n{ex.Description}")
-                        .Border(BoxBorder.Rounded)
-                        .BorderStyle(Style.Parse("red"));
-                    AnsiConsole.Write(errorPanel);
+                    ex.PrintPanel();
                 }
                 return parser;
             }

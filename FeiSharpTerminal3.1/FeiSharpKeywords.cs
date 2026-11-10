@@ -58,6 +58,7 @@ namespace FeiSharpTerminal3._1
                 ["return"] = new Token(TokenTypes.Keyword, "return"),
                 ["gvfj"] = new Token(TokenTypes.Keyword, "gvfj"),
                 ["class"] = new Token(TokenTypes.Keyword, "class"),
+                ["event"] = new Token(TokenTypes.Keyword, "event"),
                 ["this"] = new Token(TokenTypes.Keyword, "this"),
                 ["base"] = new Token(TokenTypes.Keyword, "base"),
                 ["private"] = new Token(TokenTypes.Keyword, "private"),

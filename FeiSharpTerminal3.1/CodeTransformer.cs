@@ -9,6 +9,7 @@ public class CodeTransformer
     {
         string result = ExpandCompoundAssignments(input);
         result = TransformAsOperator(result);
+        result = NormalizeCastTypeArguments(result);
         return result;
     }
 
@@ -30,6 +31,7 @@ public class CodeTransformer
     private static string TransformAsOperator(string input)
     {
         var stringPlaceholders = new Dictionary<string, string>();
+        var importPlaceholders = new Dictionary<string, string>();
         int placeholderIndex = 0;
         input = Regex.Replace(input, @"""(?:[^""\\]|\\.)*""",
             m => {
@@ -45,7 +47,18 @@ public class CodeTransformer
                 return key;
             },
             RegexOptions.Singleline);
-        string pattern = @"(?<![.\w])\b([^,;()\[\]{}]*?)\s+as\s+([a-zA-Z_]\w*)\b(?![.\w])";
+        // `as` is also the alias separator in an import directive. Protect
+        // that complete directive before applying the legacy cast transform.
+        input = Regex.Replace(input,
+            @"\bimport\s+[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)+\s+as\s+[A-Za-z_]\w*\s*;?",
+            m =>
+            {
+                string key = $"__IMPORT_{importPlaceholders.Count}__";
+                importPlaceholders[key] = m.Value;
+                return key;
+            },
+            RegexOptions.IgnoreCase);
+        string pattern = @"(?<![.\w])\b([^,;()\[\]{}]*?)\s+as\s+(integer|string|boolean|number|double|float|int|str|bool|char)\b(?![.\w])";
         input = Regex.Replace(input, pattern,
             m => {
                 string expr = m.Groups[1].Value.Trim();
@@ -59,15 +72,39 @@ public class CodeTransformer
                     return m.Value;
                 }
 
-                return $"cast({expr}, \"{typeName}\")";
+                return $"cast({expr}, {typeName})";
             },
-            RegexOptions.Singleline);
+            RegexOptions.Singleline | RegexOptions.IgnoreCase);
         foreach (var kv in stringPlaceholders)
+        {
+            input = input.Replace(kv.Key, kv.Value);
+        }
+        foreach (var kv in importPlaceholders)
         {
             input = input.Replace(kv.Key, kv.Value);
         }
 
         return input;
+    }
+
+    // `cast` is implemented by default_functions through ctype(), whose
+    // runtime contract uses type-name strings. Keep the language surface
+    // pleasant (`cast(value, integer)`) while supplying that internal form.
+    private static string NormalizeCastTypeArguments(string input)
+    {
+        const string typePattern = "integer|string|boolean|number|double|float|int|str|bool|char";
+        return Regex.Replace(input,
+            $@"\bcast\s*\(\s*(?<value>[^,()]+?)\s*,\s*(?<type>{typePattern})\s*\)",
+            match =>
+            {
+                string typeName = match.Groups["type"].Value;
+                if (TypeAliasMap.TryGetValue(typeName, out string? mappedType))
+                {
+                    typeName = mappedType;
+                }
+                return $"cast({match.Groups["value"].Value.Trim()}, \"{typeName}\")";
+            },
+            RegexOptions.IgnoreCase);
     }
 
     private static bool IsReservedKeyword(string expr)
@@ -76,7 +113,7 @@ public class CodeTransformer
         return Array.Exists(reserved, k => k.Equals(expr, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static readonly Dictionary<string, string> TypeAliasMap = new()
+    private static readonly Dictionary<string, string> TypeAliasMap = new(StringComparer.OrdinalIgnoreCase)
 {
     { "int", "number" },
     { "integer", "number" },
